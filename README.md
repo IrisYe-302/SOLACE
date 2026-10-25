@@ -1,5 +1,24 @@
 # SOLACE ESP32 firmware
 
+## Run the live demo web app
+
+The route UI and ESP telemetry server now run together through FastAPI:
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8080
+```
+
+Open `http://localhost:8080`. Set `TELEMETRY_URL` in `Config.h` to
+`http://<laptop-LAN-IP>:8080/api/telemetry`. The interface uses live ESP data
+when available and retains the four simulated temperatures as fallback.
+
+Telemetry endpoints are `POST /api/telemetry`, `GET /api/readings`,
+`GET /api/events`, and `GET /api/health`. Route-demo endpoints remain available
+at `/streetlamps`, `/paths`, and `/best-route`.
+
 This is a configurable Arduino-ESP32 starting point, not a final wiring plan. It
 implements:
 
@@ -32,6 +51,9 @@ NO PERSON → LDR solar-power tracking
 Tune them against the fixed miniature passenger area. The occupancy sensor only
 reports that something entered its beam; it does not report the person's 2D
 position, so one sensor cannot dynamically aim a shadow at arbitrary locations.
+The firmware moves toward this configured pose while occupied; the optimizer's
+test result is printed for diagnostics but does not drive the servos until its
+geometry and servo-angle mapping have been calibrated.
 For that later capability, use two or more ranging zones/sensors or a small
 thermal/ToF array and combine passenger position with the measured sun vector.
 
@@ -157,8 +179,9 @@ This reduces a 5.0 V ECHO pulse to approximately 3.0 V:
 the same ground used by the HC-SR04 and ESP32-S3.
 
 For the current hand-under-sensor demo, `OCC_USE_FIXED_DEMO_THRESHOLD` is
-enabled: three consecutive readings at or below 30 mm mark the zone occupied.
-Set that option to `false` to restore learned-background detection.
+enabled: one reading at or below 100 mm marks the zone occupied. Occupancy
+clears about one second after the hand is removed. Set that option to `false`
+to restore learned-background detection.
 
 ### L293D and 130-size motor
 
@@ -193,9 +216,10 @@ pins 3 and 6.
 
 For an isolated motor check, flash `motor_test/motor_test.ino`. It drives only
 GPIO14, alternating two seconds on and three seconds off. If that sketch works,
-the hardware path is good and the main firmware is waiting for both `occ=1` and
-`hot=1`. If Serial reports `cool=1` but the motor test does not turn, measure
-GPIO14 and L293D pin 1 before changing the application logic.
+the hardware path is good. The current demo configuration lets `occ=1` enable
+the motor without requiring `hot=1`; normal operation can be restored by setting
+`DEMO_MOTOR_ON_OCCUPANCY` to `false`. If Serial reports `cool=1` but the motor
+does not turn, measure GPIO14 and L293D pin 1 before changing application logic.
 
 ## Six direct LDRs
 
@@ -229,6 +253,21 @@ The firmware averages T1/T2 and B1/B2 for elevation tracking. L1 and R1 provide
 the azimuth error. All six inputs are on ESP32-S3 ADC1, which remains available
 while Wi-Fi is active. The HC-SR04 uses GPIO16/17, and the temperature threshold
 input uses GPIO11 on the left header.
+
+The tracking input is averaged and low-pass filtered. An axis must remain
+outside the deadband in the same direction for two consecutive control samples
+before it moves. Large errors use faster steps while small errors use slower
+steps, so a passing shadow or one noisy ADC reading should not reverse a servo.
+The current demo profile checks every 150 ms and moves by 0.75-4 degrees, so a
+steady directional light should begin producing motion within about 300 ms.
+Tune `LDR_FILTER_ALPHA`, `TRACKING_DEADBAND`, and the tracking step limits in
+`Config.h` if the final sensor shroud has substantially different behavior.
+
+To distinguish feedback noise from a power problem, watch `az=` and `el=` in
+Serial. If those commanded angles change, inspect the six `ldr=` values and
+sensor placement. If the angles stay fixed but a servo twitches, the cause is
+electrical or mechanical: use a separate regulated 5 V supply, common ground,
+short signal/ground wiring, and a 470-1000 uF capacitor near the servo rail.
 
 The firmware configures each LDR channel for 11 dB ADC attenuation, whose
 documented ESP32 measurement range extends to approximately 3.1 V. The raw

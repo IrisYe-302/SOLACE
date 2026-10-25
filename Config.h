@@ -77,6 +77,9 @@ static_assert(LDR_MAX_ADC_MV <= 3100,
               "LDR divider can exceed the ESP32 ADC measurement range");
 constexpr uint16_t LDR_LOW_LIGHT_THRESHOLD = 500; // Raw ADC starting point; calibrate.
 constexpr uint8_t LDR_SAMPLES = 8;
+// Low-pass the six channels before calculating direction. This keeps ADC and
+// lamp-flicker noise from looking like a changing sun direction.
+constexpr float LDR_FILTER_ALPHA = 0.45f;
 
 // Motion limits. These must match the printed mechanism before first movement.
 constexpr float AZ_MIN_DEG = 15;
@@ -89,10 +92,16 @@ constexpr float EL_MAX_DEG = 165;
 constexpr float AZ_RESET_DEG = 90;
 constexpr float EL_RESET_DEG = 90;
 constexpr uint32_t RESET_POSE_HOLD_MS = 4000;
-constexpr float TRACKING_DEADBAND = 0.05f;
-constexpr float TRACKING_KP_DEG = 12.0f;
-constexpr float MAX_TRACK_STEP_DEG = 2.0f;
-constexpr uint32_t TRACK_PERIOD_MS = 350;
+// Force mode is useful indoors before the low-light threshold is calibrated.
+// The filtered controller below still prevents small fluctuations from moving
+// the mechanism continuously.
+constexpr bool DEMO_FORCE_LIGHT_TRACKING = true;
+constexpr float TRACKING_DEADBAND = 0.03f;
+constexpr float TRACKING_KP_DEG = 24.0f;
+constexpr float MIN_TRACK_STEP_DEG = 0.75f;
+constexpr float MAX_TRACK_STEP_DEG = 4.0f;
+constexpr uint8_t TRACKING_CONFIRM_SAMPLES = 2;
+constexpr uint32_t TRACK_PERIOD_MS = 150;
 
 // Stow positions are deliberately separate because the mechanically safest
 // direction depends on the enclosure and linkage. Adjust after bench testing.
@@ -112,21 +121,24 @@ constexpr float SHADE_EL_DEG = 90;
 // normal mode learns the empty background and detects a closer object.
 constexpr uint32_t ULTRASONIC_BAUD = 9600;
 constexpr uint32_t ULTRASONIC_PING_PERIOD_MS = 100;
-// Demo mode: detect a hand placed within 3 cm of the ultrasonic sensor instead
-// of comparing against the learned empty-zone baseline.
+// Demo mode: use a generous 10 cm hand-detection threshold. Three centimeters
+// is too close to the HC-SR04 minimum range for reliable hand detection.
 constexpr bool OCC_USE_FIXED_DEMO_THRESHOLD = true;
-constexpr uint16_t OCC_DEMO_MAX_MM = 30;
+constexpr uint16_t OCC_DEMO_MAX_MM = 100;
 constexpr uint16_t OCC_VALID_MIN_MM = 20;
 constexpr uint16_t OCC_VALID_MAX_MM = 4500;
 constexpr uint16_t OCC_CHANGE_MM = 250;
 constexpr uint16_t OCC_FALLBACK_MAX_MM = 1600;
-constexpr uint8_t OCC_ON_COUNT = 3;
-constexpr uint8_t OCC_OFF_COUNT = 8;
-constexpr uint32_t OCC_HOLD_MS = 30000;
+constexpr uint8_t OCC_ON_COUNT = 1;
+constexpr uint8_t OCC_OFF_COUNT = 2;
+constexpr uint32_t OCC_HOLD_MS = 1000;
 constexpr uint32_t OCC_BASELINE_LEARN_MS = 4000;
 
 // GPIO14 drives only the L293D enable input, never the motor itself.
 constexpr bool COOLING_ACTIVE_HIGH = true;
+// During the demo, occupancy alone enables the motor. Set this false to require
+// both occupancy and the digital heat-warning input in normal operation.
+constexpr bool DEMO_MOTOR_ON_OCCUPANCY = true;
 
 // Remote weather values sent to /weather can trigger these safety states.
 constexpr float WIND_STOW_THRESHOLD_MPS = 10.0f;

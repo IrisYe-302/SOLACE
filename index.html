@@ -4,7 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <title>Solace</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/style.css">
 </head>
 
 <body>
@@ -59,7 +60,7 @@
 
 
         <!-- MAP + CHECKPOINT -->
-        <div class="data-badge">
+        <div id="data-badge" class="data-badge">
             ● simulated data
         </div>
 
@@ -68,6 +69,8 @@
             <!-- MAP -->
 
             <div class="map">
+
+                <canvas id="heatmap-layer" aria-label="Live temperature heat map"></canvas>
 
                 <div class="path path-ab"></div>
                 <div class="path path-ac cool-route"></div>
@@ -171,7 +174,7 @@
     </div>
 
 
-    <script src="/static/script.js"></script>
+    <script src="/script.js"></script>
 
 </body>
 </html>

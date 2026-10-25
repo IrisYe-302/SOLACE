@@ -54,26 +54,71 @@ void MotionController::writeServo(uint8_t pin, uint8_t legacyChannel,
 #endif
 }
 
+float MotionController::trackingStep(float error, int8_t &lastDirection,
+                                     uint8_t &confirmationCount) {
+  const float magnitude = fabsf(error);
+  if (magnitude <= Config::TRACKING_DEADBAND) {
+    lastDirection = 0;
+    confirmationCount = 0;
+    return 0.0f;
+  }
+
+  const int8_t direction = error > 0.0f ? 1 : -1;
+  if (direction != lastDirection) {
+    lastDirection = direction;
+    confirmationCount = 1;
+    return Config::TRACKING_CONFIRM_SAMPLES <= 1
+               ? direction * Config::MIN_TRACK_STEP_DEG
+               : 0.0f;
+  }
+
+  if (confirmationCount < Config::TRACKING_CONFIRM_SAMPLES) {
+    ++confirmationCount;
+  }
+  if (confirmationCount < Config::TRACKING_CONFIRM_SAMPLES) return 0.0f;
+
+  // Apply proportional gain only to the portion outside the deadband. Large
+  // errors move promptly; small errors approach without five-degree jumps.
+  const float step = constrain(
+      Config::TRACKING_KP_DEG * (magnitude - Config::TRACKING_DEADBAND),
+      Config::MIN_TRACK_STEP_DEG, Config::MAX_TRACK_STEP_DEG);
+  return direction * step;
+}
+
 void MotionController::track(float azimuthError, float elevationError) {
-  const float azStep = constrain(Config::TRACKING_KP_DEG * azimuthError,
-                                 -Config::MAX_TRACK_STEP_DEG,
-                                 Config::MAX_TRACK_STEP_DEG);
-  const float elStep = constrain(Config::TRACKING_KP_DEG * elevationError,
-                                 -Config::MAX_TRACK_STEP_DEG,
-                                 Config::MAX_TRACK_STEP_DEG);
+  const float azStep = trackingStep(
+      azimuthError, azimuthDirection_, azimuthConfirmationCount_);
+  const float elStep = trackingStep(
+      elevationError, elevationDirection_, elevationConfirmationCount_);
   // LdrArray defines positive as the requested counter-clockwise direction.
   // Correct a physically mirrored servo with SERVO_*_REVERSED in Config.h.
-  azimuthDeg_ = constrain(azimuthDeg_ + azStep, Config::AZ_MIN_DEG, Config::AZ_MAX_DEG);
-  elevationDeg_ = constrain(elevationDeg_ + elStep, Config::EL_MIN_DEG, Config::EL_MAX_DEG);
-  writeAngles();
+  const float nextAzimuth = constrain(
+      azimuthDeg_ + azStep, Config::AZ_MIN_DEG, Config::AZ_MAX_DEG);
+  const float nextElevation = constrain(
+      elevationDeg_ + elStep, Config::EL_MIN_DEG, Config::EL_MAX_DEG);
+  if (nextAzimuth != azimuthDeg_ || nextElevation != elevationDeg_) {
+    azimuthDeg_ = nextAzimuth;
+    elevationDeg_ = nextElevation;
+    writeAngles();
+  }
 }
 
 void MotionController::moveToward(float azimuthTarget, float elevationTarget) {
+  hold();
+  const float oldAzimuth = azimuthDeg_;
+  const float oldElevation = elevationDeg_;
   azimuthDeg_ = limitedStep(azimuthDeg_, azimuthTarget, Config::MAX_TRACK_STEP_DEG);
   elevationDeg_ = limitedStep(elevationDeg_, elevationTarget, Config::MAX_TRACK_STEP_DEG);
   azimuthDeg_ = constrain(azimuthDeg_, Config::AZ_MIN_DEG, Config::AZ_MAX_DEG);
   elevationDeg_ = constrain(elevationDeg_, Config::EL_MIN_DEG, Config::EL_MAX_DEG);
-  writeAngles();
+  if (azimuthDeg_ != oldAzimuth || elevationDeg_ != oldElevation) writeAngles();
+}
+
+void MotionController::hold() {
+  azimuthDirection_ = 0;
+  elevationDirection_ = 0;
+  azimuthConfirmationCount_ = 0;
+  elevationConfirmationCount_ = 0;
 }
 
 void MotionController::writeAngles() {

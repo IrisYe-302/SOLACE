@@ -36,7 +36,8 @@ static SystemState chooseState(RemoteMode remoteMode) {
   // Occupancy takes priority over low-light handling.
   if (node.occupied) return SystemState::SHADE;
 
-  if (node.light.average < Config::LDR_LOW_LIGHT_THRESHOLD) {
+  if (!Config::DEMO_FORCE_LIGHT_TRACKING &&
+      node.light.average < Config::LDR_LOW_LIGHT_THRESHOLD) {
     return SystemState::LOW_LIGHT;
   }
 
@@ -99,11 +100,14 @@ void loop() {
   node.temperatureValid = temperature.validCelsius();
   node.temperatureC = temperature.temperatureC();
 
-  // The L293D is enabled only when the waiting zone is occupied and hot. Safety
-  // stow/fault modes inhibit the motor.
+  // Demo mode lets occupancy directly enable the L293D. Normal operation also
+  // requires a heat warning. Safety stow/fault modes always inhibit the motor.
   const RemoteMode remote = network.remoteMode();
   const bool safeForCooling = remote == RemoteMode::AUTO;
-  setCooling(node.occupied && node.heatWarning && safeForCooling);
+  const bool coolingDemand =
+      node.occupied &&
+      (Config::DEMO_MOTOR_ON_OCCUPANCY || node.heatWarning);
+  setCooling(coolingDemand && safeForCooling);
 
   // Hold the reset pose briefly before normal shade/tracking/stow motion.
   if (now >= Config::RESET_POSE_HOLD_MS &&
@@ -124,49 +128,43 @@ void loop() {
         break;
  
       case SystemState::SHADE: {
-  // Test values only; not a real sun-position estimate.
+        motion.hold();
+        // Test values only; not a real sun-position estimate.
         const float testSunAzimuthDeg = 35.0f;
         const float testSunElevationDeg = 35.0f;
 
-  // Height from ground to the rotation pivot.
+        // Height from ground to the rotation pivot.
         const float pivotHeightCm = 15.0f;
 
-  // Temporary offsets. Calibrate these from the actual mechanism.
+        // Temporary offsets. Calibrate these from the actual mechanism.
         const float offsetUcm = 0.0f;
         const float offsetVcm = 0.0f;
         const float offsetNcm = 0.0f;
 
-      ShadeResult shade = shadeOptimizer.optimize(
-      testSunAzimuthDeg,
-      testSunElevationDeg,
-      pivotHeightCm,
-      offsetUcm,
-      offsetVcm,
-      offsetNcm
-  );
+        ShadeResult shade = shadeOptimizer.optimize(
+            testSunAzimuthDeg, testSunElevationDeg, pivotHeightCm,
+            offsetUcm, offsetVcm, offsetNcm);
 
-  if (shade.valid) {
-    Serial.printf(
-        "SHADE_OPT az=%.1f el=%.1f coverage=%.1f%% "
-        "targetMet=%d powerProxy=%.3f\n",
-        shade.azimuthDeg,
-        shade.elevationDeg,
-        shade.coverage * 100.0f,
-        shade.coverageTargetMet,
-        shade.powerProxy
-    );
-  } else {
-    Serial.println("SHADE_OPT: no valid solution");
-  }
+        if (shade.valid) {
+          Serial.printf(
+              "SHADE_OPT az=%.1f el=%.1f coverage=%.1f%% "
+              "targetMet=%d powerProxy=%.3f\n",
+              shade.azimuthDeg, shade.elevationDeg, shade.coverage * 100.0f,
+              shade.coverageTargetMet, shade.powerProxy);
+        } else {
+          Serial.println("SHADE_OPT: no valid solution");
+        }
 
-  // Do not drive the servos during this initial test.
-  break;
-}
-// testing code for the shade, not final ver.
+        // Keep the uncalibrated optimizer out of the actuator path for now.
+        // MotionController bounds the configured pose to safe limits.
+        motion.moveToward(Config::SHADE_AZ_DEG, Config::SHADE_EL_DEG);
+        break;
+      }
       
       case SystemState::LOW_LIGHT:
       case SystemState::ALIGNED:
       case SystemState::FAULT:
+        motion.hold();
         break; // Hold position and issue no further motion command.
     }
     node.azimuthDeg = motion.azimuth();

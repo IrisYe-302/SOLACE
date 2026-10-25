@@ -3,6 +3,7 @@
 #include "Config.h"
 
 void LdrArray::begin() {
+  filterInitialized_ = false;
   for (uint8_t i = 0; i < Config::LDR_COUNT; ++i) {
     pinMode(Config::PIN_LDR_ADC[i], INPUT);
     analogSetPinAttenuation(Config::PIN_LDR_ADC[i], ADC_11db);
@@ -24,10 +25,19 @@ LdrReadings LdrArray::read() {
   float sum = 0;
   for (uint8_t i = 0; i < Config::LDR_COUNT; ++i) {
     r.raw[i] = readPin(Config::PIN_LDR_ADC[i]);
-    float value = r.raw[i] * Config::LDR_GAIN[i];
-    r.corrected[i] = Config::LDR_BRIGHTER_IS_HIGH ? value : 4095.0f - value;
+    const float value = r.raw[i] * Config::LDR_GAIN[i];
+    const float corrected =
+        Config::LDR_BRIGHTER_IS_HIGH ? value : 4095.0f - value;
+    if (!filterInitialized_) {
+      filtered_[i] = corrected;
+    } else {
+      filtered_[i] +=
+          Config::LDR_FILTER_ALPHA * (corrected - filtered_[i]);
+    }
+    r.corrected[i] = filtered_[i];
     sum += r.corrected[i];
   }
+  filterInitialized_ = true;
 
   r.top = (r.corrected[Config::LDR_T1] +
            r.corrected[Config::LDR_T2]) * 0.5f;
