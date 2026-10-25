@@ -7,7 +7,7 @@ implements:
 - two-axis servo tracking with deadband and movement limits;
 - selectable HC-SR04 or A02YYUW ultrasonic occupancy detection;
 - a digital heat-threshold input such as a KY-028 `DO` pin;
-- occupancy-and-heat-gated fan/cooling output;
+- occupancy-and-heat-gated fan control through an L293D;
 - automatic objective switching: solar-power tracking while unoccupied and a
   calibrated shade pose while occupied;
 - Wi-Fi status, remote stow commands, incoming weather data, and optional JSON
@@ -43,8 +43,9 @@ Open `SOLACE.ino` in Arduino IDE and keep all files in this folder.
 
 ## SG servo PWM calibration
 
-Both outputs use 50 Hz PWM. The initial 1000-2000 microsecond range is
-deliberately conservative because Arduino-kit SG90-compatible servos vary.
+Both outputs use 50 Hz PWM at the ESP32-S3-supported 14-bit resolution. The
+initial 1000-2000 microsecond range is deliberately conservative because
+Arduino-kit SG90-compatible servos vary.
 
 1. Power the servo from a separate regulated 5 V supply and connect that
    supply's ground to ESP32 ground. Do not power both servos from the ESP32.
@@ -63,21 +64,27 @@ deliberately conservative because Arduino-kit SG90-compatible servos vary.
 Pulse endpoints and mechanical angle limits solve different problems: pulse
 endpoints characterize the servo; angle limits protect the assembled linkage.
 
+On every reset, the firmware commands both axes to 90 degrees, producing the
+initial perpendicular/outward pose, and holds it for four seconds while the
+ultrasonic sensor learns the empty waiting zone. If the assembled linkage is
+not physically perpendicular at 90 degrees, adjust `EL_RESET_DEG` in `Config.h`
+after unloaded servo calibration. `AZ_RESET_DEG` centers the top/azimuth axis.
+
 Physical servo pinout:
 
-| Servo | ESP32 pin | Logical axis |
+| Servo | ESP32-S3 pin | Logical axis |
 | --- | --- | --- |
 | Top servo | GPIO18 | Azimuth |
-| Bottom servo | GPIO19 | Elevation |
+| Bottom servo | GPIO12 | Elevation |
 
 ## Before connecting hardware
 
-1. Select an ESP32-WROOM development-board target in Arduino IDE and verify every
-   GPIO in `Config.h` against that board's printed pin labels.
+1. Select **ESP32S3 Dev Module** in Arduino IDE and verify every GPIO in
+   `Config.h` against the exact board's printed pin labels.
 2. Confirm each servo's supply voltage/current and power servos from a separate
    regulated rail with common ground. Never power them from the ESP32 3.3 V pin.
-3. Connect the cooling fan only through an appropriate MOSFET/driver with flyback
-   protection if required.
+3. Connect the fan motor only through the L293D described below. Never connect
+   the motor directly to an ESP32-S3 GPIO.
 4. Choose the ultrasonic model with `USE_A02YYUW` in `Config.h`. The default is
    HC-SR04. Its 5 V `ECHO` must pass through a resistor divider or level shifter
    before reaching the 3.3 V ESP32 input. For an A02YYUW, power it at 3.3 V when
@@ -86,41 +93,142 @@ Physical servo pinout:
    safe minimum, maximum, and stow angles before allowing loaded movement.
 6. Fill in Wi-Fi credentials locally. Avoid publishing them in source control.
 
-## Six direct LDRs
+## ESP32-S3 pinout
 
-No analog multiplexer is required. Because these LDR networks use a 5 V supply,
-each one needs both a 10 kOhm upper safety resistor and the existing 10 kOhm
-resistor to ground:
+This profile targets an ESP32-S3 DevKitC-1-style board. It reserves GPIO19/20
+for native USB, GPIO43/44 for UART0, the boot-strapping pins, and GPIO35-37,
+which some S3 modules use internally for flash/PSRAM.
+
+| SOLACE connection | ESP32-S3 pin | Power / notes |
+| --- | --- | --- |
+| LDR T1 ADC node | GPIO4 / ADC1_CH3 | 3.3 V divider below |
+| LDR T2 ADC node | GPIO5 / ADC1_CH4 | 3.3 V divider below |
+| LDR B1 ADC node | GPIO6 / ADC1_CH5 | Hinge-side sensor |
+| LDR B2 ADC node | GPIO7 / ADC1_CH6 | Hinge-side sensor |
+| LDR L1 ADC node | GPIO8 / ADC1_CH7 | Left sensor |
+| LDR R1 ADC node | GPIO9 / ADC1_CH8 | Right sensor |
+| I2C SDA | GPIO21 | Future SHT/INA sensor data |
+| I2C SCL | GPIO10 | Future SHT/INA sensor clock |
+| Top servo signal | GPIO18 | Azimuth; servo power is external 5 V |
+| Bottom servo signal | GPIO12 | Elevation; servo power is external 5 V |
+| Temperature module DO | GPIO11 | Left-header pin; power module from 3.3 V |
+| L293D EN1 | GPIO14 | Automatic motor enable; add a 10 kOhm pulldown |
+| HC-SR04 TRIG | GPIO16 | 3.3 V output is normally accepted |
+| HC-SR04 ECHO | GPIO17 | Through the 10 kOhm / 15 kOhm divider below |
+| A02YYUW TX, alternative | GPIO16 | Used as UART RX when selected in firmware |
+
+Top-view LDR placement and commanded tracking direction:
 
 ```text
-5 V → 10 kOhm → LDR → ADC node → 10 kOhm → GND
-                         │
-                         └──────── ESP32 ADC pin
+             free edge
+          T1           T2
+       L1                 R1
+          B1           B2
+               hinge
 ```
 
-The upper 10 kOhm resistor limits the theoretical maximum ADC voltage to about
-2.50 V even if the illuminated LDR approaches zero resistance. A direct
-`5 V → LDR → ADC → 10 kOhm → GND` connection is unsafe because the ADC node can
-approach 5 V. Firmware attenuation does not make an over-voltage safe.
+More light on `B1/B2` commands the bottom servo counter-clockwise. More light
+on `R1` commands the top servo counter-clockwise. Counter-clockwise means viewed
+toward the servo shaft; if an installed servo moves the other way, change only
+its `SERVO_TOP_REVERSED` or `SERVO_BOTTOM_REVERSED` flag in `Config.h`.
+
+### HC-SR04 wiring and ECHO divider
+
+| HC-SR04 pin | Connection |
+| --- | --- |
+| VCC | External regulated 5 V |
+| GND | Common GND |
+| TRIG | ESP32-S3 GPIO16 directly |
+| ECHO | 10 kOhm resistor to the GPIO17 divider node |
+
+Wire the 5 V ECHO output through this divider; do not connect ECHO directly to
+the S3:
+
+```text
+HC-SR04 ECHO ── 10 kOhm ──┬── GPIO17
+                           │
+                         15 kOhm
+                           │
+                          GND
+```
+
+This reduces a 5.0 V ECHO pulse to approximately 3.0 V:
+`5.0 V * 15 kOhm / (10 kOhm + 15 kOhm) = 3.0 V`. The divider ground must be
+the same ground used by the HC-SR04 and ESP32-S3.
+
+For the current hand-under-sensor demo, `OCC_USE_FIXED_DEMO_THRESHOLD` is
+enabled: three consecutive readings at or below 30 mm mark the zone occupied.
+Set that option to `false` to restore learned-background detection.
+
+### L293D and 130-size motor
+
+During development, power the S3 through USB. Use a separate regulated 5 V,
+3 A or larger supply for both servos, the HC-SR04, L293D, and motor. Join the
+external supply ground to an S3 GND pin, but do not join its 5 V output to the
+board's USB 5 V rail.
+
+Orient the DIP chip with its notch upward. Pin 1 is the upper-left pin and the
+numbers run counter-clockwise:
+
+```text
+                 notch
+             +---U---+
+ GPIO14 EN1  1|       |16  VSS logic 5 V
+ 5 V     1A  2|       |15  4A → GND (unused)
+ motor A 1Y  3| L293D |14  4Y → no connection
+ GND         4|       |13  GND
+ GND         5|       |12  GND
+ motor B 2Y  6|       |11  3Y → no connection
+ GND     2A  7|       |10  3A → GND (unused)
+ motor 5 V   8|       |9   EN2 → GND (unused)
+             +-------+
+```
+
+Add a 10 kOhm resistor from pin 1/GPIO14 to GND so the motor stays off while
+the S3 resets. Add a 0.1 uF ceramic capacitor across pins 16 and GND, another
+0.1 uF across pins 8 and GND, 470-1000 uF across the external 5 V rail, and a
+0.1 uF ceramic capacitor directly across the motor terminals. The L293D already
+contains motor clamp diodes. If the motor rotates backward, swap the wires on
+pins 3 and 6.
+
+For an isolated motor check, flash `motor_test/motor_test.ino`. It drives only
+GPIO14, alternating two seconds on and three seconds off. If that sketch works,
+the hardware path is good and the main firmware is waiting for both `occ=1` and
+`hot=1`. If Serial reports `cool=1` but the motor test does not turn, measure
+GPIO14 and L293D pin 1 before changing the application logic.
+
+## Six direct LDRs
+
+No analog multiplexer is required. Power the LDR networks from 3.3 V so they do
+not depend on a 5 V output from the S3 board. Each channel uses this circuit:
+
+```text
+3V3 → 1 kOhm → LDR → ADC node → 10 kOhm → GND
+                       │
+                       └──────── ESP32-S3 ADC pin
+```
+
+The upper 1 kOhm resistor limits the theoretical maximum ADC voltage to about
+3.00 V even if the illuminated LDR approaches zero resistance.
 
 Connect the six protected ADC nodes as follows:
 
-| Sensor | ESP32 pin |
+| Sensor | ESP32-S3 pin |
 | --- | --- |
-| T1 | GPIO32 |
-| T2 | GPIO33 |
-| B1 | GPIO34 |
-| B2 | GPIO35 |
-| L1 | GPIO36 / VP |
-| R1 | GPIO39 / VN |
+| T1 | GPIO4 |
+| T2 | GPIO5 |
+| B1 | GPIO6 |
+| B2 | GPIO7 |
+| L1 | GPIO8 |
+| R1 | GPIO9 |
 
 `B1` and `B2` are the hinge-side sensors. `T1` and `T2` are mounted on the
 opposite free edge of the panel.
 
 The firmware averages T1/T2 and B1/B2 for elevation tracking. L1 and R1 provide
-the azimuth error. GPIO34, GPIO35, GPIO36, and GPIO39 are input-only, which is
-appropriate for these analog divider outputs. The HC-SR04 moves to GPIO16/17,
-and the temperature threshold input moves to GPIO13.
+the azimuth error. All six inputs are on ESP32-S3 ADC1, which remains available
+while Wi-Fi is active. The HC-SR04 uses GPIO16/17, and the temperature threshold
+input uses GPIO11 on the left header.
 
 The firmware configures each LDR channel for 11 dB ADC attenuation, whose
 documented ESP32 measurement range extends to approximately 3.1 V. The raw
@@ -191,7 +299,7 @@ SOLACE is a prototype solar-powered adaptive shading system developed for HackIo
 
 ## System Overview
 
-**Microcontroller:** ESP32-WROOM
+**Microcontroller:** ESP32-S3
 
 **Key components:**
 - Six LDR sensors for relative light measurements

@@ -4,7 +4,7 @@
 
 #include "SystemTypes.h"
 
-class NetworkManager {
+class SolaceNetworkManager {
  public:
   void begin(NodeStatus *status);
   void update(uint32_t nowMs);

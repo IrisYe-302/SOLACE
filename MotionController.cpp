@@ -9,8 +9,8 @@ static float limitedStep(float current, float target, float maxStep) {
 }
 
 void MotionController::begin() {
-  azimuthDeg_ = Config::AZ_START_DEG;
-  elevationDeg_ = Config::EL_START_DEG;
+  azimuthDeg_ = Config::AZ_RESET_DEG;
+  elevationDeg_ = Config::EL_RESET_DEG;
   attachPwm();
   writeAngles();
 }
@@ -61,7 +61,8 @@ void MotionController::track(float azimuthError, float elevationError) {
   const float elStep = constrain(Config::TRACKING_KP_DEG * elevationError,
                                  -Config::MAX_TRACK_STEP_DEG,
                                  Config::MAX_TRACK_STEP_DEG);
-  // Reverse either sign here if bench testing shows an axis moves away from light.
+  // LdrArray defines positive as the requested counter-clockwise direction.
+  // Correct a physically mirrored servo with SERVO_*_REVERSED in Config.h.
   azimuthDeg_ = constrain(azimuthDeg_ + azStep, Config::AZ_MIN_DEG, Config::AZ_MAX_DEG);
   elevationDeg_ = constrain(elevationDeg_ + elStep, Config::EL_MIN_DEG, Config::EL_MAX_DEG);
   writeAngles();

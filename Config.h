@@ -3,34 +3,49 @@
 #include <Arduino.h>
 
 // -----------------------------------------------------------------------------
-// ESP32-WROOM development-board hardware profile
+// ESP32-S3 DevKitC-1-style development-board hardware profile
 // -----------------------------------------------------------------------------
-// This avoids common boot-strapping pins and keeps the LDR input on ADC1 because
-// ESP32 ADC2 is unavailable while Wi-Fi is active. Verify the labels against the
-// exact development board in hand before connecting hardware.
+// This avoids GPIO0/3/45/46 (boot straps), GPIO19/20 (native USB), GPIO43/44
+// (UART0), and GPIO35/36/37 (may be internal flash/PSRAM on some S3 modules).
+// Verify the labels against the exact development board before wiring it.
 namespace Config {
 
 constexpr uint8_t LDR_COUNT = 6;
-// Direct ADC1 inputs: T1, T2, B1, B2, L1, R1. B1/B2 are nearest the hinge;
-// T1/T2 are on the free edge. ADC1 remains usable with Wi-Fi.
-constexpr uint8_t PIN_LDR_ADC[LDR_COUNT] = {32, 33, 34, 35, 36, 39};
+// Top-view sensor layout. B1/B2 are nearest the hinge and T1/T2 are on the
+// free edge:
+//
+//             free edge
+//          T1           T2
+//       L1                 R1
+//          B1           B2
+//               hinge
+//
+// Keep these named indices synchronized with PIN_LDR_ADC and LDR_GAIN.
+enum LdrIndex : uint8_t { LDR_T1, LDR_T2, LDR_B1, LDR_B2, LDR_L1, LDR_R1 };
+// Direct ADC1 inputs in the named order above. ADC1 remains usable with Wi-Fi.
+constexpr uint8_t PIN_LDR_ADC[LDR_COUNT] = {4, 5, 6, 7, 8, 9};
 constexpr uint8_t PIN_I2C_SDA = 21;
-constexpr uint8_t PIN_I2C_SCL = 22;
+constexpr uint8_t PIN_I2C_SCL = 10;
 constexpr uint8_t PIN_SERVO_TOP = 18;    // Physical top servo; drives azimuth.
-constexpr uint8_t PIN_SERVO_BOTTOM = 19; // Physical bottom servo; drives elevation.
-constexpr uint8_t PIN_TEMP_DIGITAL = 13;  // e.g. KY-028 DO
-constexpr uint8_t PIN_COOLING = 23;       // MOSFET/driver input
+constexpr uint8_t PIN_SERVO_BOTTOM = 12; // Physical bottom servo; drives elevation.
+constexpr uint8_t PIN_TEMP_DIGITAL = 11;  // Left-header pin; e.g. KY-028 DO.
+constexpr uint8_t PIN_COOLING = 14;       // L293D pin 1 (EN1), with 10k pulldown.
 
 // Direct LEDC PWM for SG-style positional micro servos. Start conservatively at
 // 1000-2000 us and widen only after testing each unloaded servo. Clone limits vary.
 constexpr uint32_t SERVO_PWM_HZ = 50;
-constexpr uint8_t SERVO_PWM_BITS = 16;
+// ESP32-S3 LEDC supports at most 14-bit duty resolution. Requesting 16 bits
+// makes ledcAttach() fail, leaving the servo signal pins inactive.
+constexpr uint8_t SERVO_PWM_BITS = 14;
 constexpr uint8_t SERVO_TOP_CHANNEL = 0; // Used by Arduino-ESP32 core 2.x.
 constexpr uint8_t SERVO_BOTTOM_CHANNEL = 1;
 constexpr uint16_t SERVO_TOP_MIN_US = 1000;
 constexpr uint16_t SERVO_TOP_MAX_US = 2000;
 constexpr uint16_t SERVO_BOTTOM_MIN_US = 1000;
 constexpr uint16_t SERVO_BOTTOM_MAX_US = 2000;
+// With both values false, increasing the logical angle is expected to be
+// counter-clockwise when looking at each servo shaft. Flip only the affected
+// value if the physical mounting makes that servo turn clockwise instead.
 constexpr bool SERVO_TOP_REVERSED = false;
 constexpr bool SERVO_BOTTOM_REVERSED = false;
 
@@ -49,11 +64,11 @@ constexpr bool TEMP_THRESHOLD_ACTIVE_LOW = true;
 // Direct sensor order: T1, T2, B1, B2, L1, R1.
 constexpr float LDR_GAIN[LDR_COUNT] = {1, 1, 1, 1, 1, 1};
 constexpr bool LDR_BRIGHTER_IS_HIGH = true;
-// Safe 5 V network for every input:
-// 5 V -> 10 kOhm -> LDR -> ADC node -> 10 kOhm -> GND.
-// Even with an ideal 0-Ohm LDR, the ADC node is limited to about 2.50 V.
-constexpr uint32_t LDR_SUPPLY_MV = 5000;
-constexpr uint32_t LDR_SERIES_OHMS = 10000;
+// Safe 3.3 V network for every input:
+// 3V3 -> 1 kOhm -> LDR -> ADC node -> 10 kOhm -> GND.
+// Even with an ideal 0-Ohm LDR, the ADC node is limited to about 3.00 V.
+constexpr uint32_t LDR_SUPPLY_MV = 3300;
+constexpr uint32_t LDR_SERIES_OHMS = 1000;
 constexpr uint32_t LDR_PULLDOWN_OHMS = 10000;
 constexpr uint32_t LDR_MAX_ADC_MV =
     LDR_SUPPLY_MV * LDR_PULLDOWN_OHMS /
@@ -68,8 +83,12 @@ constexpr float AZ_MIN_DEG = 15;
 constexpr float AZ_MAX_DEG = 165;
 constexpr float EL_MIN_DEG = 15;
 constexpr float EL_MAX_DEG = 165;
-constexpr float AZ_START_DEG = 90;
-constexpr float EL_START_DEG = 90;
+// On every reset, center the top axis and command the bottom axis to the
+// mechanism's perpendicular/outward pose. Adjust EL_RESET_DEG after calibration
+// if the linkage's physical 90-degree position is not actually perpendicular.
+constexpr float AZ_RESET_DEG = 90;
+constexpr float EL_RESET_DEG = 90;
+constexpr uint32_t RESET_POSE_HOLD_MS = 4000;
 constexpr float TRACKING_DEADBAND = 0.05f;
 constexpr float TRACKING_KP_DEG = 12.0f;
 constexpr float MAX_TRACK_STEP_DEG = 2.0f;
@@ -89,11 +108,15 @@ constexpr float RAIN_STOW_EL_DEG = 165;
 constexpr float SHADE_AZ_DEG = 90;
 constexpr float SHADE_EL_DEG = 90;
 
-// Ultrasonic occupancy detection. Start with the waiting zone empty so the unit
-// can learn the background surface. A person is a closer-than-background change.
+// Ultrasonic occupancy detection. Demo mode uses a fixed close-range threshold;
+// normal mode learns the empty background and detects a closer object.
 constexpr uint32_t ULTRASONIC_BAUD = 9600;
 constexpr uint32_t ULTRASONIC_PING_PERIOD_MS = 100;
-constexpr uint16_t OCC_VALID_MIN_MM = 30;
+// Demo mode: detect a hand placed within 3 cm of the ultrasonic sensor instead
+// of comparing against the learned empty-zone baseline.
+constexpr bool OCC_USE_FIXED_DEMO_THRESHOLD = true;
+constexpr uint16_t OCC_DEMO_MAX_MM = 30;
+constexpr uint16_t OCC_VALID_MIN_MM = 20;
 constexpr uint16_t OCC_VALID_MAX_MM = 4500;
 constexpr uint16_t OCC_CHANGE_MM = 250;
 constexpr uint16_t OCC_FALLBACK_MAX_MM = 1600;
@@ -102,7 +125,7 @@ constexpr uint8_t OCC_OFF_COUNT = 8;
 constexpr uint32_t OCC_HOLD_MS = 30000;
 constexpr uint32_t OCC_BASELINE_LEARN_MS = 4000;
 
-// A MOSFET or motor-driver input, never the fan/motor itself, connects here.
+// GPIO14 drives only the L293D enable input, never the motor itself.
 constexpr bool COOLING_ACTIVE_HIGH = true;
 
 // Remote weather values sent to /weather can trigger these safety states.

@@ -29,16 +29,24 @@ LdrReadings LdrArray::read() {
     sum += r.corrected[i];
   }
 
-  r.top = (r.corrected[0] + r.corrected[1]) * 0.5f;
-  r.bottom = (r.corrected[2] + r.corrected[3]) * 0.5f;
-  r.left = r.corrected[4];
-  r.right = r.corrected[5];
+  r.top = (r.corrected[Config::LDR_T1] +
+           r.corrected[Config::LDR_T2]) * 0.5f;
+  r.bottom = (r.corrected[Config::LDR_B1] +
+              r.corrected[Config::LDR_B2]) * 0.5f;
+  r.left = r.corrected[Config::LDR_L1];
+  r.right = r.corrected[Config::LDR_R1];
   r.average = sum / Config::LDR_COUNT;
 
   constexpr float epsilon = 1.0f;
-  r.azimuthError = (r.left - r.right) / (r.left + r.right + epsilon);
-  r.elevationError = (r.top - r.bottom) / (r.top + r.bottom + epsilon);
-  r.topShadeDifference = fabsf(r.corrected[0] - r.corrected[1]) /
-                         (r.corrected[0] + r.corrected[1] + epsilon);
+  // Positive error increases the corresponding logical servo angle. With the
+  // configured shaft convention, that is counter-clockwise:
+  //   brighter R1       -> top/azimuth servo CCW
+  //   brighter B1 + B2  -> bottom/elevation servo CCW
+  r.azimuthError = (r.right - r.left) / (r.left + r.right + epsilon);
+  r.elevationError = (r.bottom - r.top) / (r.top + r.bottom + epsilon);
+  r.topShadeDifference =
+      fabsf(r.corrected[Config::LDR_T1] - r.corrected[Config::LDR_T2]) /
+      (r.corrected[Config::LDR_T1] +
+       r.corrected[Config::LDR_T2] + epsilon);
   return r;
 }

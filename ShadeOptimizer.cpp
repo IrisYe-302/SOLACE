@@ -4,7 +4,7 @@
 
 namespace {
   constexpr int MAX_POLY_VERTICES = 12;
-  constexpr float DEG_TO_RAD = 0.017453292519943295f;
+  constexpr float kDegreesToRadians = 0.017453292519943295f;
 }
 
 ShadeOptimizer::Vec3 ShadeOptimizer::add(Vec3 a, Vec3 b) {
@@ -62,8 +62,8 @@ void ShadeOptimizer::makePanel(
     Vec3 vertices[4],
     Vec3& normal
 ) {
-  float az = azDeg * DEG_TO_RAD;
-  float el = elDeg * DEG_TO_RAD;
+  float az = azDeg * kDegreesToRadians;
+  float el = elDeg * kDegreesToRadians;
 
   normal = normalize({
     cosf(el) * cosf(az),
@@ -268,8 +268,8 @@ ShadeResult ShadeOptimizer::optimize(
     return result;
   }
 
-  float sunAz = sunAzimuthDeg * DEG_TO_RAD;
-  float sunEl = sunElevationDeg * DEG_TO_RAD;
+  float sunAz = sunAzimuthDeg * kDegreesToRadians;
+  float sunEl = sunElevationDeg * kDegreesToRadians;
 
   Vec3 sunDirection = normalize({
     cosf(sunEl) * cosf(sunAz),

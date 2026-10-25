@@ -1,11 +1,11 @@
-#include "NetworkManager.h"
+#include "SolaceNetworkManager.h"
 
 #include <HTTPClient.h>
 #include <WiFi.h>
 
 #include "Config.h"
 
-void NetworkManager::begin(NodeStatus *status) {
+void SolaceNetworkManager::begin(NodeStatus *status) {
   status_ = status;
   WiFi.mode(WIFI_STA);
   WiFi.begin(Config::WIFI_SSID, Config::WIFI_PASSWORD);
@@ -21,7 +21,7 @@ void NetworkManager::begin(NodeStatus *status) {
   server_.begin();
 }
 
-void NetworkManager::update(uint32_t nowMs) {
+void SolaceNetworkManager::update(uint32_t nowMs) {
   server_.handleClient();
   const bool connected = WiFi.status() == WL_CONNECTED;
   if (connected && !wifiWasConnected_) {
@@ -41,7 +41,7 @@ void NetworkManager::update(uint32_t nowMs) {
   }
 }
 
-String NetworkManager::statusJson() const {
+String SolaceNetworkManager::statusJson() const {
   String j;
   j.reserve(700);
   j += "{\"nodeId\":\"" + String(Config::NODE_ID) + "\"";
@@ -73,11 +73,11 @@ String NetworkManager::statusJson() const {
   return j;
 }
 
-void NetworkManager::handleStatus() {
+void SolaceNetworkManager::handleStatus() {
   server_.send(200, "application/json", statusJson());
 }
 
-void NetworkManager::handleCommand() {
+void SolaceNetworkManager::handleCommand() {
   const String mode = server_.arg("mode");
   if (mode == "auto") remoteMode_ = RemoteMode::AUTO;
   else if (mode == "wind") remoteMode_ = RemoteMode::WIND;
@@ -90,7 +90,7 @@ void NetworkManager::handleCommand() {
   server_.send(200, "application/json", statusJson());
 }
 
-void NetworkManager::handleWeather() {
+void SolaceNetworkManager::handleWeather() {
   if (server_.hasArg("wind")) status_->windMps = server_.arg("wind").toFloat();
   if (server_.hasArg("rain")) status_->raining = server_.arg("rain").toInt() != 0;
 
@@ -100,7 +100,7 @@ void NetworkManager::handleWeather() {
   server_.send(200, "application/json", statusJson());
 }
 
-void NetworkManager::postTelemetry() {
+void SolaceNetworkManager::postTelemetry() {
   if (WiFi.status() != WL_CONNECTED || strlen(Config::TELEMETRY_URL) == 0) return;
   HTTPClient http;
   http.setTimeout(1500);

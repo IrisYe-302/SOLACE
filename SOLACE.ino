@@ -4,7 +4,7 @@
 #include "Config.h"
 #include "LdrArray.h"
 #include "MotionController.h"
-#include "NetworkManager.h"
+#include "SolaceNetworkManager.h"
 #include "OccupancySensor.h"
 #include "SystemTypes.h"
 #include "TemperatureMonitor.h"
@@ -14,7 +14,7 @@ LdrArray ldrArray;
 MotionController motion;
 OccupancySensor occupancy;
 TemperatureMonitor temperature;
-NetworkManager network;
+SolaceNetworkManager network;
 NodeStatus node;
 ShadeOptimizer shadeOptimizer;
 
@@ -50,6 +50,8 @@ static SystemState chooseState(RemoteMode remoteMode) {
 
 
 static void printTelemetry() {
+  static const char *const ldrNames[Config::LDR_COUNT] = {
+      "T1", "T2", "B1", "B2", "L1", "R1"};
   Serial.printf("state=%s occ=%d dist=%umm hot=%d cool=%d az=%.1f el=%.1f "
                 "light=%.0f errAz=%.3f errEl=%.3f shadeTop=%.3f ldr=",
                 stateName(node.state), node.occupied, node.distanceMm,
@@ -58,7 +60,7 @@ static void printTelemetry() {
                 node.light.azimuthError, node.light.elevationError,
                 node.light.topShadeDifference);
   for (uint8_t i = 0; i < Config::LDR_COUNT; ++i) {
-    Serial.printf("%s%u", i ? "," : "", node.light.raw[i]);
+    Serial.printf("%s%s:%u", i ? "," : "", ldrNames[i], node.light.raw[i]);
   }
   Serial.println();
 }
@@ -74,7 +76,15 @@ void setup() {
   occupancy.begin();
   temperature.begin();
   network.begin(&node);
-  Serial.println("SOLACE booted. Keep the ultrasonic waiting zone empty for 4 seconds.");
+  node.azimuthDeg = motion.azimuth();
+  node.elevationDeg = motion.elevation();
+  if (Config::OCC_USE_FIXED_DEMO_THRESHOLD) {
+    Serial.printf("SOLACE booted. Ultrasonic demo threshold: %u mm.\n",
+                  Config::OCC_DEMO_MAX_MM);
+  } else {
+    Serial.println("SOLACE booted in the perpendicular/outward reset pose. "
+                   "Keep the ultrasonic waiting zone empty for 4 seconds.");
+  }
 }
 
 void loop() {
@@ -89,13 +99,15 @@ void loop() {
   node.temperatureValid = temperature.validCelsius();
   node.temperatureC = temperature.temperatureC();
 
-  // Heat warning is an independent flag rather than an exclusive state.
-  // Safety stow/fault inhibits cooling; AUTO tracking does not.
+  // The L293D is enabled only when the waiting zone is occupied and hot. Safety
+  // stow/fault modes inhibit the motor.
   const RemoteMode remote = network.remoteMode();
   const bool safeForCooling = remote == RemoteMode::AUTO;
   setCooling(node.occupied && node.heatWarning && safeForCooling);
 
-  if (now - lastTrackMs >= Config::TRACK_PERIOD_MS) {
+  // Hold the reset pose briefly before normal shade/tracking/stow motion.
+  if (now >= Config::RESET_POSE_HOLD_MS &&
+      now - lastTrackMs >= Config::TRACK_PERIOD_MS) {
     lastTrackMs = now;
     node.light = ldrArray.read();
     node.state = chooseState(remote);

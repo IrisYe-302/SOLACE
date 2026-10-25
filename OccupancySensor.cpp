@@ -77,7 +77,7 @@ void OccupancySensor::acceptDistance(uint16_t mm, uint32_t nowMs) {
   if (mm < Config::OCC_VALID_MIN_MM || mm > Config::OCC_VALID_MAX_MM) return;
   distanceMm_ = mm;
 
-  if (!baselineReady_) {
+  if (!Config::OCC_USE_FIXED_DEMO_THRESHOLD && !baselineReady_) {
     baselineTotal_ += mm;
     ++baselineSamples_;
     if (nowMs >= Config::OCC_BASELINE_LEARN_MS && baselineSamples_ > 5) {
@@ -87,9 +87,11 @@ void OccupancySensor::acceptDistance(uint16_t mm, uint32_t nowMs) {
     return;
   }
 
-  const bool detected = baselineMm_ > Config::OCC_CHANGE_MM
-                            ? mm < baselineMm_ - Config::OCC_CHANGE_MM
-                            : mm < Config::OCC_FALLBACK_MAX_MM;
+  const bool detected = Config::OCC_USE_FIXED_DEMO_THRESHOLD
+                            ? mm <= Config::OCC_DEMO_MAX_MM
+                            : (baselineMm_ > Config::OCC_CHANGE_MM
+                                   ? mm < baselineMm_ - Config::OCC_CHANGE_MM
+                                   : mm < Config::OCC_FALLBACK_MAX_MM);
   if (detected) {
     if (positiveCount_ < Config::OCC_ON_COUNT) ++positiveCount_;
     negativeCount_ = 0;
