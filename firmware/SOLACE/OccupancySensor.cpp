@@ -37,6 +37,18 @@ void OccupancySensor::begin() {
 void OccupancySensor::update(uint32_t nowMs) {
   if (Config::USE_A02YYUW) updateA02(nowMs);
   else updateHcsr04(nowMs);
+
+  // A missing echo means there is no reliable nearby target. Do not leave the
+  // fan latched on indefinitely because the last valid sample happened to be
+  // a short reflection.
+  if (nowMs - lastValidDistanceMs_ >= Config::OCC_STALE_MS) {
+    occupied_ = false;
+    distanceMm_ = 0;
+    positiveCount_ = 0;
+    negativeCount_ = 0;
+    recentDistanceCount_ = 0;
+    recentDistanceIndex_ = 0;
+  }
 }
 
 void OccupancySensor::updateA02(uint32_t nowMs) {
@@ -75,10 +87,33 @@ void OccupancySensor::updateHcsr04(uint32_t nowMs) {
 
 void OccupancySensor::acceptDistance(uint16_t mm, uint32_t nowMs) {
   if (mm < Config::OCC_VALID_MIN_MM || mm > Config::OCC_VALID_MAX_MM) return;
-  distanceMm_ = mm;
+  lastValidDistanceMs_ = nowMs;
+
+  recentDistances_[recentDistanceIndex_] = mm;
+  recentDistanceIndex_ =
+      (recentDistanceIndex_ + 1) % Config::OCC_MEDIAN_SAMPLES;
+  if (recentDistanceCount_ < Config::OCC_MEDIAN_SAMPLES) {
+    ++recentDistanceCount_;
+  }
+
+  uint16_t sorted[Config::OCC_MEDIAN_SAMPLES];
+  for (uint8_t i = 0; i < recentDistanceCount_; ++i) {
+    sorted[i] = recentDistances_[i];
+  }
+  for (uint8_t i = 1; i < recentDistanceCount_; ++i) {
+    const uint16_t value = sorted[i];
+    int8_t j = i - 1;
+    while (j >= 0 && sorted[j] > value) {
+      sorted[j + 1] = sorted[j];
+      --j;
+    }
+    sorted[j + 1] = value;
+  }
+  distanceMm_ = sorted[recentDistanceCount_ / 2];
+  if (recentDistanceCount_ < 3) return;
 
   if (!Config::OCC_USE_FIXED_DEMO_THRESHOLD && !baselineReady_) {
-    baselineTotal_ += mm;
+    baselineTotal_ += distanceMm_;
     ++baselineSamples_;
     if (nowMs >= Config::OCC_BASELINE_LEARN_MS && baselineSamples_ > 5) {
       baselineMm_ = baselineTotal_ / baselineSamples_;
@@ -88,10 +123,10 @@ void OccupancySensor::acceptDistance(uint16_t mm, uint32_t nowMs) {
   }
 
   const bool detected = Config::OCC_USE_FIXED_DEMO_THRESHOLD
-                            ? mm <= Config::OCC_DEMO_MAX_MM
+                            ? distanceMm_ <= Config::OCC_DEMO_MAX_MM
                             : (baselineMm_ > Config::OCC_CHANGE_MM
-                                   ? mm < baselineMm_ - Config::OCC_CHANGE_MM
-                                   : mm < Config::OCC_FALLBACK_MAX_MM);
+                                   ? distanceMm_ < baselineMm_ - Config::OCC_CHANGE_MM
+                                   : distanceMm_ < Config::OCC_FALLBACK_MAX_MM);
   if (detected) {
     if (positiveCount_ < Config::OCC_ON_COUNT) ++positiveCount_;
     negativeCount_ = 0;

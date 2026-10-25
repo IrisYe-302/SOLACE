@@ -9,7 +9,7 @@ const context = canvas.getContext("2d");
 const lampEnergy = { A: 2.8, B: 3.5, C: 3.2, D: 4.1 };
 
 function heatColor(t) {
-    const stops = [[38,59,250], [0,202,220], [100,236,133], [255,230,93], [255,55,55]];
+    const stops = [[93,116,72], [143,166,109], [188,184,103], [229,200,94], [168,95,75]];
     t = Math.max(0, Math.min(1, t));
     const scaled = t * (stops.length - 1);
     const index = Math.min(stops.length - 2, Math.floor(scaled));
@@ -59,13 +59,40 @@ async function refreshLamps() {
     const hasLiveData = lamps.some(lamp => lamp.live);
     lamps.forEach(lamp => {
         const label = document.querySelector(`.lamp-${lamp.id.toLowerCase()} span`);
+        const nodeValue = document.getElementById(`node-${lamp.id.toLowerCase()}-value`);
         if (label) {
             label.textContent = lamp.display_value;
             label.title = lamp.device ? `Live from ${lamp.device}` : "Simulated fallback";
         }
+        if (nodeValue) nodeValue.textContent = lamp.display_value;
     });
-    badge.className = hasLiveData ? "data-badge live" : "data-badge";
-    badge.textContent = hasLiveData ? "● live ESP data" : "● simulated data";
+    if (badge) {
+        badge.className = hasLiveData ? "data-badge live" : "data-badge";
+        badge.innerHTML = `<span></span>${hasLiveData ? "ESP CONNECTED · LIVE DATA" : "WAITING FOR ESP DATA"}`;
+    }
+
+    const liveCount = lamps.filter(lamp => lamp.live).length;
+    const freshest = lamps
+        .filter(lamp => lamp.last_seen_seconds !== null)
+        .sort((a, b) => a.last_seen_seconds - b.last_seen_seconds)[0];
+    const linkStatus = document.getElementById("esp-link-status");
+    if (linkStatus) {
+        if (hasLiveData && freshest) {
+            const signal = freshest.wifi_rssi ? ` · ${freshest.wifi_rssi} dBm` : "";
+            linkStatus.textContent = `${freshest.device}${signal}`;
+        } else if (freshest) {
+            linkStatus.textContent = `offline · last seen ${freshest.last_seen_seconds}s ago`;
+        } else {
+            linkStatus.textContent = "waiting for telemetry";
+        }
+    }
+    const temperatures = lamps.map(lamp => Number(lamp.temperature));
+    const coolest = lamps.reduce((best, lamp) => lamp.temperature < best.temperature ? lamp : best, lamps[0]);
+    document.getElementById("network-count").textContent = `${liveCount} / ${lamps.length}`;
+    document.getElementById("network-bar").style.width = `${liveCount / lamps.length * 100}%`;
+    document.getElementById("network-average").textContent =
+        (temperatures.reduce((sum, value) => sum + value, 0) / temperatures.length).toFixed(1);
+    document.getElementById("coolest-node").textContent = `${coolest.id} · ${coolest.temperature.toFixed(0)}°`;
 }
 
 async function loadInitialData() {
@@ -76,8 +103,10 @@ async function loadInitialData() {
         drawHeatmap();
         await refreshLamps();
     } catch (error) {
-        badge.textContent = "● server unavailable";
-        badge.className = "data-badge reconnecting";
+        if (badge) {
+            badge.innerHTML = "<span></span>SERVER UNAVAILABLE";
+            badge.className = "data-badge reconnecting";
+        }
     }
 }
 
@@ -90,40 +119,56 @@ function connectTelemetry() {
         refreshLamps();
     });
     events.onerror = () => {
-        badge.textContent = "● reconnecting to sensors";
-        badge.className = "data-badge reconnecting";
+        if (badge) {
+            badge.innerHTML = "<span></span>RECONNECTING TO SENSORS";
+            badge.className = "data-badge reconnecting";
+        }
     };
 }
 
 document.getElementById("find-route-button").addEventListener("click", async () => {
-    const response = await fetch("/best-route");
+    const start = document.getElementById("route-start").value;
+    const end = document.getElementById("route-end").value;
+    const response = await fetch(`/best-route?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+    if (!response.ok) return;
     const data = await response.json();
     document.querySelectorAll(".path").forEach(path => path.classList.remove("selected"));
-    if (data.recommended_route === "A-C-D") {
-        document.querySelector(".path-ac").classList.add("selected");
-        document.querySelector(".path-cd").classList.add("selected");
-    } else {
-        document.querySelector(".path-ab").classList.add("selected");
-        document.querySelector(".path-bd").classList.add("selected");
+    const routeNodes = data.selected_route.path.split("-");
+    for (let index = 0; index < routeNodes.length - 1; index += 1) {
+        const edge = [routeNodes[index], routeNodes[index + 1]].sort().join("").toLowerCase();
+        document.querySelector(`.path-${edge}`)?.classList.add("selected");
     }
 
-    selectedRoute = data.recommended_route === "A-C-D" ? data.route_2 : data.route_1;
+    selectedRoute = data.selected_route;
     walkRoute = selectedRoute.path.split("-");
+    currentLampIndex = 0;
+    document.getElementById("energy-reward").style.display = "none";
+    document.getElementById("user-marker").style.display = "none";
     document.getElementById("recommended-path").textContent = selectedRoute.path.replaceAll("-", " → ");
     document.getElementById("route-distance").textContent = `${selectedRoute.distance} m`;
     document.getElementById("route-temperature").textContent = `${selectedRoute.average_temperature}°F`;
     document.getElementById("route-eta").textContent = `${selectedRoute.eta} min`;
     document.getElementById("estimated-energy").textContent = `${selectedRoute.estimated_energy} kJ`;
     document.getElementById("route-explanation").textContent = data.using_live_temperature
-        ? "Route score includes live ESP temperature readings."
-        : "Using simulated temperatures until numerical ESP readings arrive.";
+        ? "Fresh from the ESPs: this route follows the coolest live readings."
+        : "Less heat, more main-character energy. This is the cooler way.";
     document.getElementById("route-result").style.display = "block";
+});
+
+["route-start", "route-end"].forEach(id => {
+    document.getElementById(id).addEventListener("change", () => {
+        selectedRoute = null;
+        document.getElementById("route-result").style.display = "none";
+        document.getElementById("energy-reward").style.display = "none";
+        document.getElementById("user-marker").style.display = "none";
+        document.querySelectorAll(".path").forEach(path => path.classList.remove("selected"));
+    });
 });
 
 function moveMarker(lampID) {
     const marker = document.getElementById("user-marker");
     const lamp = document.querySelector(`.lamp-${lampID.toLowerCase()}`);
-    marker.style.display = "block";
+    marker.style.display = "grid";
     marker.style.left = `${lamp.offsetLeft + 15}px`;
     marker.style.top = `${lamp.offsetTop - 30}px`;
 }
@@ -134,7 +179,7 @@ function showLampReward() {
     const continueButton = document.getElementById("continue-walk-button");
     document.getElementById("energy-amount").textContent = `${lampEnergy[lampID]} kJ/min`;
     document.getElementById("energy-message").textContent =
-        `You reached Lamp ${lampID}! This solar panel is currently generating renewable energy.`;
+        `You made it to shade ${lampID}! This little solar overachiever is making renewable energy.`;
     reward.style.display = "block";
     if (currentLampIndex === walkRoute.length - 1) setTimeout(showWalkSummary, 700);
     else { continueButton.textContent = "continue walking →"; continueButton.disabled = false; }
@@ -164,4 +209,7 @@ document.getElementById("continue-walk-button").addEventListener("click", () => 
 });
 
 new ResizeObserver(drawHeatmap).observe(document.querySelector(".map"));
-loadInitialData().then(connectTelemetry);
+loadInitialData().then(() => {
+    connectTelemetry();
+    setInterval(refreshLamps, 2000);
+});

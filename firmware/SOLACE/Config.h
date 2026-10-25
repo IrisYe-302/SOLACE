@@ -2,6 +2,20 @@
 
 #include <Arduino.h>
 
+// Keep deployment credentials in an untracked Secrets.h beside this file.
+// Copy Secrets.example.h to Secrets.h and fill in the local values.
+#if __has_include("Secrets.h")
+#include "Secrets.h"
+#endif
+
+#ifndef SOLACE_WIFI_SSID
+#define SOLACE_WIFI_SSID ""
+#endif
+
+#ifndef SOLACE_WIFI_PASSWORD
+#define SOLACE_WIFI_PASSWORD ""
+#endif
+
 // -----------------------------------------------------------------------------
 // ESP32-S3 DevKitC-1-style development-board hardware profile
 // -----------------------------------------------------------------------------
@@ -96,7 +110,7 @@ constexpr uint32_t RESET_POSE_HOLD_MS = 4000;
 // The filtered controller below still prevents small fluctuations from moving
 // the mechanism continuously.
 constexpr bool DEMO_FORCE_LIGHT_TRACKING = true;
-constexpr float TRACKING_DEADBAND = 0.03f;
+constexpr float TRACKING_DEADBAND = 0.02f;
 constexpr float TRACKING_KP_DEG = 24.0f;
 constexpr float MIN_TRACK_STEP_DEG = 0.75f;
 constexpr float MAX_TRACK_STEP_DEG = 4.0f;
@@ -116,22 +130,39 @@ constexpr float RAIN_STOW_EL_DEG = 165;
 // are standing, so it cannot calculate this pose on its own.
 constexpr float SHADE_AZ_DEG = 90;
 constexpr float SHADE_EL_DEG = 90;
+// Shade optimizer geometry. X/Y locate the center of the fixed passenger zone
+// relative to the rotation pivot on the ground plane. These demo values match a
+// 35-degree azimuth/elevation lamp with a 15 cm pivot and must be measured on
+// the final model. Optimizer search is restricted to reachable servo commands.
+constexpr float SHADE_PIVOT_HEIGHT_CM = 15.0f;
+constexpr float SHADE_PANEL_OFFSET_U_CM = 0.0f;
+constexpr float SHADE_PANEL_OFFSET_V_CM = 0.0f;
+constexpr float SHADE_PANEL_OFFSET_N_CM = 0.0f;
+constexpr float SHADE_TARGET_CENTER_X_CM = -17.6f;
+constexpr float SHADE_TARGET_CENTER_Y_CM = -12.3f;
+constexpr float SHADE_SEARCH_AZ_MIN_DEG = AZ_MIN_DEG;
+constexpr float SHADE_SEARCH_AZ_MAX_DEG = AZ_MAX_DEG;
+constexpr float SHADE_SEARCH_EL_MIN_DEG = EL_MIN_DEG;
+constexpr float SHADE_SEARCH_EL_MAX_DEG = 85.0f;
+constexpr float SHADE_SEARCH_STEP_DEG = 5.0f;
 
 // Ultrasonic occupancy detection. Demo mode uses a fixed close-range threshold;
 // normal mode learns the empty background and detects a closer object.
 constexpr uint32_t ULTRASONIC_BAUD = 9600;
 constexpr uint32_t ULTRASONIC_PING_PERIOD_MS = 100;
-// Demo mode: use a generous 10 cm hand-detection threshold. Three centimeters
-// is too close to the HC-SR04 minimum range for reliable hand detection.
+// Demo mode: require a hand within 8 cm. A rolling median and consecutive-hit
+// requirement reject isolated short echoes without making detection slow.
 constexpr bool OCC_USE_FIXED_DEMO_THRESHOLD = true;
-constexpr uint16_t OCC_DEMO_MAX_MM = 100;
+constexpr uint16_t OCC_DEMO_MAX_MM = 80;
 constexpr uint16_t OCC_VALID_MIN_MM = 20;
 constexpr uint16_t OCC_VALID_MAX_MM = 4500;
 constexpr uint16_t OCC_CHANGE_MM = 250;
 constexpr uint16_t OCC_FALLBACK_MAX_MM = 1600;
-constexpr uint8_t OCC_ON_COUNT = 1;
-constexpr uint8_t OCC_OFF_COUNT = 2;
-constexpr uint32_t OCC_HOLD_MS = 1000;
+constexpr uint8_t OCC_MEDIAN_SAMPLES = 5;
+constexpr uint8_t OCC_ON_COUNT = 2;
+constexpr uint8_t OCC_OFF_COUNT = 3;
+constexpr uint32_t OCC_HOLD_MS = 750;
+constexpr uint32_t OCC_STALE_MS = 600;
 constexpr uint32_t OCC_BASELINE_LEARN_MS = 4000;
 
 // GPIO14 drives only the L293D enable input, never the motor itself.
@@ -148,13 +179,13 @@ constexpr uint32_t TELEMETRY_PERIOD_MS = 10000;
 // Wi-Fi and heat-map endpoint
 // -----------------------------------------------------------------------------
 // Fill these in locally. Do not commit real credentials to a public repository.
-constexpr char WIFI_SSID[] = "YOUR_WIFI_NAME";
-constexpr char WIFI_PASSWORD[] = "YOUR_WIFI_PASSWORD";
+constexpr char WIFI_SSID[] = SOLACE_WIFI_SSID;
+constexpr char WIFI_PASSWORD[] = SOLACE_WIFI_PASSWORD;
 
 // Leave empty to disable outbound HTTP telemetry. The local /status endpoint
 // still works. Replace this example IP with the laptop's LAN IP.
 // Example: "http://192.168.1.50:8080/api/telemetry"
-constexpr char TELEMETRY_URL[] = "";
+constexpr char TELEMETRY_URL[] = "http://10.23.172.224:8080/api/telemetry";
 constexpr char NODE_ID[] = "solace-demo-01";
 // Fixed location on the dashboard, normalized from 0.0 (left/top) to 1.0
 // (right/bottom). Give every deployed node its own position.

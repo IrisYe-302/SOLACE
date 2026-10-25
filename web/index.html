@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#172019">
+    <title>SOLACE // Thermal Navigation</title>
+    <link rel="stylesheet" href="/style.css?v=20261025-2">
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <a class="brand" href="#route-finder" aria-label="SOLACE dashboard">
+                <span class="brand-mark"><img src="/assets/solace-mark.png" alt=""></span>
+                <span><strong>SOLACE</strong><small>THERMAL OPS</small></span>
+            </a>
+            <nav class="side-nav" aria-label="Primary navigation">
+                <a class="nav-item active" href="#route-finder"><span class="nav-icon">⌖</span><span>Route console</span></a>
+                <a class="nav-item" href="#network-status"><span class="nav-icon">⌁</span><span>Sensor network</span></a>
+                <a class="nav-item" href="#route-result"><span class="nav-icon">↗</span><span>Energy impact</span></a>
+            </nav>
+            <div class="sidebar-footer"><span class="pulse-dot"></span><div><strong>EDGE LINK</strong><small>ESP32 / HTTP</small></div></div>
+        </aside>
+
+        <main class="dashboard">
+            <header class="topbar">
+                <div>
+                    <p class="eyebrow">SOLAR SHADE NETWORK / LIVE CONSOLE</p>
+                    <h1>stay cool.</h1>
+                    <p class="subtitle">Bring your hot girl energy to the renewables—we’ll find the cooler way.</p>
+                </div>
+                <div id="data-badge" class="data-badge"><span></span>WAITING FOR ESP DATA</div>
+            </header>
+
+            <section class="metrics" aria-label="Network overview">
+                <article class="metric-card"><div class="metric-head"><span>NETWORK</span><i class="status-led"></i></div><strong id="network-count">0 / 4</strong><p>live sensor nodes</p><div class="microbar"><span id="network-bar"></span></div></article>
+                <article class="metric-card"><div class="metric-head"><span>THERMAL AVG</span><b>°F</b></div><strong id="network-average">81.0</strong><p>across route network</p><div class="trend neutral">— stable thermal range</div></article>
+                <article class="metric-card accent"><div class="metric-head"><span>COOLEST NODE</span><b>↓</b></div><strong id="coolest-node">C · 76°</strong><p>current optimal shade point</p><div class="trend good">● thermal advantage</div></article>
+                <article class="metric-card"><div class="metric-head"><span>SOLAR OUTPUT</span><b>Σ</b></div><strong>13.6</strong><p>kJ / min estimated</p><div class="sparkline" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article>
+            </section>
+
+            <section id="route-finder" class="workspace-grid">
+                <article class="panel map-panel">
+                    <div class="panel-header"><div><p class="panel-kicker">ROUTE ENGINE 01</p><h2>Thermal network map</h2></div><div class="map-tools"><button type="button" class="tool active">HEAT</button><button type="button" class="tool">NODES</button></div></div>
+                    <div class="route-controls">
+                        <label for="route-start"><span>ORIGIN NODE</span><select id="route-start"><option>A</option><option>B</option><option>C</option><option>D</option></select></label>
+                        <span class="route-arrow">→</span>
+                        <label for="route-end"><span>DESTINATION</span><select id="route-end"><option>D</option><option>C</option><option>B</option><option>A</option></select></label>
+                        <button id="find-route-button" class="primary-button"><span>FIND MY COOLEST ROUTE</span><b>↗</b></button>
+                    </div>
+
+                    <div class="map-stage">
+                        <div class="map-coordinate north">N</div><div class="map-coordinate scale">50 m</div>
+                        <div class="map" aria-label="Network heat map">
+                            <canvas id="heatmap-layer" aria-label="Live temperature heat map"></canvas>
+                            <svg class="route-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                                <line class="path path-ab" x1="15" y1="49" x2="49" y2="19"></line>
+                                <line class="path path-ac cool-route" x1="15" y1="49" x2="49" y2="79"></line>
+                                <line class="path path-bd" x1="49" y1="19" x2="85" y2="49"></line>
+                                <line class="path path-cd cool-route" x1="49" y1="79" x2="85" y2="49"></line>
+                            </svg>
+                            <div class="lamp lamp-a"><div class="dot">A</div><span>78°F</span><small>NODE 01</small></div>
+                            <div class="lamp lamp-b"><div class="dot">B</div><span>82°F</span><small>NODE 02</small></div>
+                            <div class="lamp lamp-c"><div class="dot">C</div><span>76°F</span><small>NODE 03</small></div>
+                            <div class="lamp lamp-d"><div class="dot">D</div><span>88°F</span><small>NODE 04</small></div>
+                            <div id="user-marker" aria-label="Current position">⌖</div>
+                        </div>
+                    </div>
+                    <div class="map-legend"><span><i class="legend-cool"></i>COOL</span><span><i class="legend-mid"></i>MODERATE</span><span><i class="legend-hot"></i>HIGH HEAT</span><span class="timestamp">AUTO REFRESH · 2S</span></div>
+                </article>
+
+                <aside class="right-rail">
+                    <article id="network-status" class="panel node-panel">
+                        <div class="panel-header compact"><div><p class="panel-kicker">SYSTEM STATUS</p><h2>Edge nodes</h2></div><span class="mono-label">04 TOTAL</span></div>
+                        <div class="node-list">
+                            <div><i class="node-icon">A</i><span><strong>SHADE-A</strong><small>WEST ENTRY</small></span><b id="node-a-value">78°F</b></div>
+                            <div><i class="node-icon">B</i><span><strong>SHADE-B</strong><small>NORTH WALK</small></span><b id="node-b-value">82°F</b></div>
+                            <div><i class="node-icon">C</i><span><strong>SHADE-C</strong><small>SOUTH WALK</small></span><b id="node-c-value">76°F</b></div>
+                            <div><i class="node-icon warning">D</i><span><strong>SHADE-D</strong><small>EAST ENTRY</small></span><b id="node-d-value">88°F</b></div>
+                        </div>
+                    </article>
+                    <article id="energy-reward" class="panel reward-panel"><p class="panel-kicker">☀ CHECKPOINT ☀</p><h2 id="energy-amount">--</h2><p id="energy-message">Let’s make some sunshine count.</p><button id="continue-walk-button" class="secondary-button">KEEP WALKING →</button></article>
+                    <article class="panel protocol-panel">
+                        <p class="panel-kicker">HOW LIVE DATA WORKS</p>
+                        <h2>From shade to screen</h2>
+                        <div><span>ESP LINK</span><strong id="esp-link-status">waiting for telemetry</strong></div>
+                        <div><span>THE DEVICE SENDS</span><strong>heat state + location</strong></div>
+                        <div><span>UPDATE SPEED</span><strong>about every 10 seconds</strong></div>
+                        <div><span>THE ROUTE MAP</span><strong>refreshes automatically</strong></div>
+                    </article>
+                </aside>
+            </section>
+
+            <section id="route-result" class="panel result-panel">
+                <div class="result-heading"><div><p class="panel-kicker">MODEL OUTPUT</p><h3>Your coolest route</h3></div><div id="recommended-path">--</div></div>
+                <div class="route-stats"><div><span>DISTANCE</span><strong id="route-distance">--</strong></div><div><span>AVG. TEMPERATURE</span><strong id="route-temperature">--</strong></div><div><span>WALKING TIME</span><strong id="route-eta">--</strong></div><div class="energy-estimate"><span>EST. ENERGY</span><strong id="estimated-energy">--</strong></div></div>
+                <div class="result-footer"><p id="route-explanation"></p><button id="start-walk-button" class="primary-button">LET’S GO! <b>→</b></button></div>
+            </section>
+        </main>
+    </div>
+    <script src="/script.js?v=20261025-2"></script>
+</body>
+</html>

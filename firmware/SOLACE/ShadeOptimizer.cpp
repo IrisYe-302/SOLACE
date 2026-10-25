@@ -174,7 +174,9 @@ float ShadeOptimizer::clippedArea(
 
 float ShadeOptimizer::computeCoverage(
     const Vec3 vertices[4],
-    Vec3 sunDirection
+    Vec3 sunDirection,
+    float targetCenterXcm,
+    float targetCenterYcm
 ) {
   // sunDirection points from the panel toward the sun.
   // Light rays travel in the opposite direction.
@@ -191,10 +193,11 @@ float ShadeOptimizer::computeCoverage(
 
     float t = vertices[i].z / sunDirection.z;
 
+    // Translate into the target rectangle's local frame before clipping.
     projected[i].x =
-        vertices[i].x - t * sunDirection.x;
+        vertices[i].x - t * sunDirection.x - targetCenterXcm;
     projected[i].y =
-        vertices[i].y - t * sunDirection.y;
+        vertices[i].y - t * sunDirection.y - targetCenterYcm;
   }
 
   // Clip the projected panel polygon against the target rectangle.
@@ -245,31 +248,34 @@ float ShadeOptimizer::computeCoverage(
   return clamp01(overlap / targetArea);
 }
 
-ShadeResult ShadeOptimizer::optimize(
-    float sunAzimuthDeg,
-    float sunElevationDeg,
-    float pivotHeightCm,
-    float offsetUcm,
-    float offsetVcm,
-    float offsetNcm
-) {
+ShadeResult ShadeOptimizer::optimize(const ShadeRequest &request) {
   ShadeResult result;
 
   // Reject invalid or below-horizon sun estimates.
-  if (!isfinite(sunAzimuthDeg) ||
-      !isfinite(sunElevationDeg) ||
-      !isfinite(pivotHeightCm) ||
-      !isfinite(offsetUcm) ||
-      !isfinite(offsetVcm) ||
-      !isfinite(offsetNcm) ||
-      sunElevationDeg <= 0.0f ||
-      sunElevationDeg > 90.0f ||
-      pivotHeightCm <= 0.0f) {
+  if (!isfinite(request.sunAzimuthDeg) ||
+      !isfinite(request.sunElevationDeg) ||
+      !isfinite(request.pivotHeightCm) ||
+      !isfinite(request.offsetUcm) ||
+      !isfinite(request.offsetVcm) ||
+      !isfinite(request.offsetNcm) ||
+      !isfinite(request.targetCenterXcm) ||
+      !isfinite(request.targetCenterYcm) ||
+      !isfinite(request.azimuthMinDeg) ||
+      !isfinite(request.azimuthMaxDeg) ||
+      !isfinite(request.elevationMinDeg) ||
+      !isfinite(request.elevationMaxDeg) ||
+      !isfinite(request.searchStepDeg) ||
+      request.sunElevationDeg <= 0.0f ||
+      request.sunElevationDeg > 90.0f ||
+      request.pivotHeightCm <= 0.0f ||
+      request.azimuthMinDeg > request.azimuthMaxDeg ||
+      request.elevationMinDeg > request.elevationMaxDeg ||
+      request.searchStepDeg <= 0.0f) {
     return result;
   }
 
-  float sunAz = sunAzimuthDeg * kDegreesToRadians;
-  float sunEl = sunElevationDeg * kDegreesToRadians;
+  const float sunAz = request.sunAzimuthDeg * kDegreesToRadians;
+  const float sunEl = request.sunElevationDeg * kDegreesToRadians;
 
   Vec3 sunDirection = normalize({
     cosf(sunEl) * cosf(sunAz),
@@ -288,26 +294,27 @@ ShadeResult ShadeOptimizer::optimize(
   bestFeasible.valid = false;
   bestFeasible.powerProxy = -1.0f;
 
-  for (float az = AZ_MIN_DEG;
-       az <= AZ_MAX_DEG + EPS;
-       az += SEARCH_STEP_DEG) {
+  for (float az = request.azimuthMinDeg;
+       az <= request.azimuthMaxDeg + EPS;
+       az += request.searchStepDeg) {
 
-    for (float el = EL_MIN_DEG;
-         el <= EL_MAX_DEG + EPS;
-         el += SEARCH_STEP_DEG) {
+    for (float el = request.elevationMinDeg;
+         el <= request.elevationMaxDeg + EPS;
+         el += request.searchStepDeg) {
 
       Vec3 vertices[4];
       Vec3 normal;
 
       makePanel(
         az, el,
-        pivotHeightCm,
-        offsetUcm, offsetVcm, offsetNcm,
+        request.pivotHeightCm,
+        request.offsetUcm, request.offsetVcm, request.offsetNcm,
         vertices, normal
       );
 
       float coverage = computeCoverage(
-        vertices, sunDirection
+        vertices, sunDirection,
+        request.targetCenterXcm, request.targetCenterYcm
       );
 
       // Direct-sun alignment proxy.

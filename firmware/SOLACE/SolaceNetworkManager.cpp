@@ -8,7 +8,8 @@
 void SolaceNetworkManager::begin(NodeStatus *status) {
   status_ = status;
   WiFi.mode(WIFI_STA);
-  WiFi.begin(Config::WIFI_SSID, Config::WIFI_PASSWORD);
+  Serial.printf("Wi-Fi: connecting to '%s'...\n", Config::WIFI_SSID);
+  startWifi();
 
   server_.on("/status", HTTP_GET, [this]() { handleStatus(); });
   server_.on("/command", HTTP_GET, [this]() { handleCommand(); });
@@ -21,19 +22,37 @@ void SolaceNetworkManager::begin(NodeStatus *status) {
   server_.begin();
 }
 
+void SolaceNetworkManager::startWifi() {
+  const bool placeholderPassword =
+      strcmp(Config::WIFI_PASSWORD, "YOUR_WIFI_PASSWORD") == 0;
+  if (strlen(Config::WIFI_PASSWORD) == 0 || placeholderPassword) {
+    WiFi.begin(Config::WIFI_SSID); // Open network.
+  } else {
+    WiFi.begin(Config::WIFI_SSID, Config::WIFI_PASSWORD);
+  }
+}
+
 void SolaceNetworkManager::update(uint32_t nowMs) {
   server_.handleClient();
   const bool connected = WiFi.status() == WL_CONNECTED;
   if (connected && !wifiWasConnected_) {
     Serial.print("Wi-Fi connected; SOLACE IP: ");
     Serial.println(WiFi.localIP());
+    Serial.printf("Wi-Fi RSSI: %d dBm\n", WiFi.RSSI());
+    if (strlen(Config::TELEMETRY_URL) == 0) {
+      Serial.println("Web telemetry disabled: set TELEMETRY_URL in Config.h");
+    } else {
+      Serial.printf("Web telemetry target: %s\n", Config::TELEMETRY_URL);
+    }
   }
   wifiWasConnected_ = connected;
 
   if (!connected && nowMs - lastWifiAttemptMs_ >= 15000) {
     lastWifiAttemptMs_ = nowMs;
+    Serial.printf("Wi-Fi not connected (status=%d); retrying '%s'\n",
+                  static_cast<int>(WiFi.status()), Config::WIFI_SSID);
     WiFi.disconnect();
-    WiFi.begin(Config::WIFI_SSID, Config::WIFI_PASSWORD);
+    startWifi();
   }
   if (nowMs - lastTelemetryMs_ >= Config::TELEMETRY_PERIOD_MS) {
     lastTelemetryMs_ = nowMs;
@@ -51,6 +70,14 @@ String SolaceNetworkManager::statusJson() const {
   j += ",\"y\":" + String(Config::NODE_MAP_Y, 4);
   j += ",\"latitude\":" + String(Config::NODE_LATITUDE, 6);
   j += ",\"longitude\":" + String(Config::NODE_LONGITUDE, 6);
+  const bool wifiConnected = WiFi.status() == WL_CONNECTED;
+  j += ",\"wifiConnected\":" + String(wifiConnected ? "true" : "false");
+  j += ",\"wifiIp\":\"" +
+       String(wifiConnected ? WiFi.localIP().toString() : "") + "\"";
+  j += ",\"wifiRssi\":" + String(wifiConnected ? WiFi.RSSI() : 0);
+  j += ",\"telemetryEnabled\":" +
+       String(strlen(Config::TELEMETRY_URL) ? "true" : "false");
+  j += ",\"lastTelemetryHttpCode\":" + String(lastTelemetryHttpCode_);
   j += ",\"temperatureC\":";
   j += status_->temperatureValid ? String(status_->temperatureC, 2) : "null";
   j += ",\"heatWarning\":" + String(status_->heatWarning ? "true" : "false");
@@ -61,6 +88,16 @@ String SolaceNetworkManager::statusJson() const {
   j += ",\"raining\":" + String(status_->raining ? "true" : "false");
   j += ",\"azimuthDeg\":" + String(status_->azimuthDeg, 1);
   j += ",\"elevationDeg\":" + String(status_->elevationDeg, 1);
+  j += ",\"shadePlanValid\":" +
+       String(status_->shadePlanValid ? "true" : "false");
+  j += ",\"shadeCoverageTargetMet\":" +
+       String(status_->shadeCoverageTargetMet ? "true" : "false");
+  j += ",\"shadeTargetAzimuthDeg\":" +
+       String(status_->shadeTargetAzimuthDeg, 1);
+  j += ",\"shadeTargetElevationDeg\":" +
+       String(status_->shadeTargetElevationDeg, 1);
+  j += ",\"shadeCoverage\":" + String(status_->shadeCoverage, 4);
+  j += ",\"shadePowerProxy\":" + String(status_->shadePowerProxy, 4);
   j += ",\"lightAverage\":" + String(status_->light.average, 1);
   j += ",\"azimuthError\":" + String(status_->light.azimuthError, 4);
   j += ",\"elevationError\":" + String(status_->light.elevationError, 4);
@@ -106,6 +143,7 @@ void SolaceNetworkManager::postTelemetry() {
   http.setTimeout(1500);
   if (!http.begin(Config::TELEMETRY_URL)) return;
   http.addHeader("Content-Type", "application/json");
-  http.POST(statusJson());
+  lastTelemetryHttpCode_ = http.POST(statusJson());
+  Serial.printf("Telemetry POST: HTTP %d\n", lastTelemetryHttpCode_);
   http.end();
 }

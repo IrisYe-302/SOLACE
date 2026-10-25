@@ -43,14 +43,18 @@ LdrReadings LdrArray::read() {
            r.corrected[Config::LDR_T2]) * 0.5f;
   r.bottom = (r.corrected[Config::LDR_B1] +
               r.corrected[Config::LDR_B2]) * 0.5f;
-  r.left = r.corrected[Config::LDR_L1];
-  r.right = r.corrected[Config::LDR_R1];
+  r.left = (r.corrected[Config::LDR_T1] +
+            r.corrected[Config::LDR_B1] +
+            r.corrected[Config::LDR_L1]) / 3.0f;
+  r.right = (r.corrected[Config::LDR_T2] +
+             r.corrected[Config::LDR_B2] +
+             r.corrected[Config::LDR_R1]) / 3.0f;
   r.average = sum / Config::LDR_COUNT;
 
   constexpr float epsilon = 1.0f;
   // Positive error increases the corresponding logical servo angle. With the
   // configured shaft convention, that is counter-clockwise:
-  //   brighter R1       -> top/azimuth servo CCW
+  //   brighter right side (T2/B2/R1) -> top/azimuth servo CCW
   //   brighter B1 + B2  -> bottom/elevation servo CCW
   r.azimuthError = (r.right - r.left) / (r.left + r.right + epsilon);
   r.elevationError = (r.bottom - r.top) / (r.top + r.bottom + epsilon);

@@ -16,6 +16,7 @@ class SolaceNetworkManager {
   void handleCommand();
   void handleWeather();
   void postTelemetry();
+  void startWifi();
 
   WebServer server_{80};
   NodeStatus *status_ = nullptr;
@@ -23,4 +24,5 @@ class SolaceNetworkManager {
   uint32_t lastWifiAttemptMs_ = 0;
   uint32_t lastTelemetryMs_ = 0;
   bool wifiWasConnected_ = false;
+  int lastTelemetryHttpCode_ = 0;
 };

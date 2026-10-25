@@ -1,8 +1,6 @@
 
 #pragma once
 
-#include <Arduino.h>
-
 struct ShadeResult {
   bool valid = false;
   bool coverageTargetMet = false;
@@ -13,29 +11,32 @@ struct ShadeResult {
   float powerProxy = -1.0f;
 };
 
-class ShadeOptimizer {
-public:
-  ShadeResult optimize(
-      float sunAzimuthDeg,
-      float sunElevationDeg,
-      float pivotHeightCm,
-      float offsetUcm,
-      float offsetVcm,
-      float offsetNcm
-  );
+struct ShadeRequest {
+  float sunAzimuthDeg;
+  float sunElevationDeg;
+  float pivotHeightCm;
+  float offsetUcm;
+  float offsetVcm;
+  float offsetNcm;
+  float targetCenterXcm;
+  float targetCenterYcm;
+  float azimuthMinDeg;
+  float azimuthMaxDeg;
+  float elevationMinDeg;
+  float elevationMaxDeg;
+  float searchStepDeg;
+};
 
-private:
+class ShadeOptimizer {
+ public:
+  ShadeResult optimize(const ShadeRequest &request);
+
+ private:
   static constexpr float PANEL_W_CM = 11.5f;
   static constexpr float PANEL_H_CM = 6.5f;
   static constexpr float TARGET_W_CM = 11.5f;
   static constexpr float TARGET_D_CM = 6.5f;
   static constexpr float MIN_COVERAGE = 0.70f;
-
-  static constexpr float AZ_MIN_DEG = -180.0f;
-  static constexpr float AZ_MAX_DEG = 180.0f;
-  static constexpr float EL_MIN_DEG = 5.0f;
-  static constexpr float EL_MAX_DEG = 85.0f;
-  static constexpr float SEARCH_STEP_DEG = 5.0f;
 
   static constexpr float EPS = 1e-5f;
 
@@ -74,7 +75,9 @@ private:
 
   static float computeCoverage(
       const Vec3 vertices[4],
-      Vec3 sunDirection
+      Vec3 sunDirection,
+      float targetCenterXcm,
+      float targetCenterYcm
   );
 
   static float clippedArea(

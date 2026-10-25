@@ -1,17 +1,24 @@
-# SOLACE ESP32 firmware
+# SOLACE
+
+The repository is split into two top-level areas:
+
+- `firmware/` contains the ESP32 Arduino sketch and standalone hardware tests.
+- `web/` contains the FastAPI telemetry server and browser UI.
 
 ## Run the live demo web app
 
 The route UI and ESP telemetry server now run together through FastAPI:
 
 ```sh
+cd web
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8080
 ```
 
-Open `http://localhost:8080`. Set `TELEMETRY_URL` in `Config.h` to
+Open `http://localhost:8080`. Set `TELEMETRY_URL` in
+`firmware/SOLACE/Config.h` to
 `http://<laptop-LAN-IP>:8080/api/telemetry`. The interface uses live ESP data
 when available and retains the four simulated temperatures as fallback.
 
@@ -47,13 +54,11 @@ PERSON PRESENT → SHADE pose
 NO PERSON → LDR solar-power tracking
 ```
 
-`SHADE_AZ_DEG` and `SHADE_EL_DEG` in `Config.h` define the initial shade pose.
-Tune them against the fixed miniature passenger area. The occupancy sensor only
-reports that something entered its beam; it does not report the person's 2D
-position, so one sensor cannot dynamically aim a shadow at arbitrary locations.
-The firmware moves toward this configured pose while occupied; the optimizer's
-test result is printed for diagnostics but does not drive the servos until its
-geometry and servo-angle mapping have been calibrated.
+`SHADE_AZ_DEG` and `SHADE_EL_DEG` in `Config.h` define the safe fallback shade
+pose. The optimizer normally drives the occupied pose using the configured
+fixed passenger-zone coordinates. The occupancy sensor only reports that
+something entered its beam; it does not report the person's 2D position, so one
+sensor cannot dynamically aim a shadow at arbitrary locations.
 For that later capability, use two or more ranging zones/sensors or a small
 thermal/ToF array and combine passenger position with the measured sun vector.
 
@@ -61,7 +66,8 @@ thermal/ToF array and combine passenger position with the measured sun vector.
 
 Install the Espressif ESP32 Arduino board package. No servo library is needed;
 the firmware drives both servos directly with the ESP32 LEDC PWM peripheral.
-Open `SOLACE.ino` in Arduino IDE and keep all files in this folder.
+Open `firmware/SOLACE/SOLACE.ino` in Arduino IDE. The sketch and its supporting
+source files remain together in the Arduino-required `SOLACE` folder.
 
 ## SG servo PWM calibration
 
@@ -113,7 +119,9 @@ Physical servo pinout:
    its UART output connects directly to the ESP32 and verify its pin order.
 5. Mechanically disconnect the servo horns for the first power-on. Establish
    safe minimum, maximum, and stow angles before allowing loaded movement.
-6. Fill in Wi-Fi credentials locally. Avoid publishing them in source control.
+6. Copy `firmware/SOLACE/Secrets.example.h` to
+   `firmware/SOLACE/Secrets.h`, then fill in the Wi-Fi credentials locally.
+   `Secrets.h` is ignored by Git and must not be published.
 
 ## ESP32-S3 pinout
 
@@ -179,7 +187,7 @@ This reduces a 5.0 V ECHO pulse to approximately 3.0 V:
 the same ground used by the HC-SR04 and ESP32-S3.
 
 For the current hand-under-sensor demo, `OCC_USE_FIXED_DEMO_THRESHOLD` is
-enabled: one reading at or below 100 mm marks the zone occupied. Occupancy
+enabled: one reading at or below 60 mm marks the zone occupied. Occupancy
 clears about one second after the hand is removed. Set that option to `false`
 to restore learned-background detection.
 
@@ -214,7 +222,8 @@ the S3 resets. Add a 0.1 uF ceramic capacitor across pins 16 and GND, another
 contains motor clamp diodes. If the motor rotates backward, swap the wires on
 pins 3 and 6.
 
-For an isolated motor check, flash `motor_test/motor_test.ino`. It drives only
+For an isolated motor check, flash
+`firmware/tests/motor_test/motor_test.ino`. It drives only
 GPIO14, alternating two seconds on and three seconds off. If that sketch works,
 the hardware path is good. The current demo configuration lets `occ=1` enable
 the motor without requiring `hot=1`; normal operation can be restored by setting
@@ -249,8 +258,9 @@ Connect the six protected ADC nodes as follows:
 `B1` and `B2` are the hinge-side sensors. `T1` and `T2` are mounted on the
 opposite free edge of the panel.
 
-The firmware averages T1/T2 and B1/B2 for elevation tracking. L1 and R1 provide
-the azimuth error. All six inputs are on ESP32-S3 ADC1, which remains available
+The firmware compares the T1/T2 pair against the B1/B2 pair for elevation. For
+azimuth it compares the average of T1/B1/L1 against T2/B2/R1, so all six sensors
+participate in directional tracking. All inputs are on ESP32-S3 ADC1, available
 while Wi-Fi is active. The HC-SR04 uses GPIO16/17, and the temperature threshold
 input uses GPIO11 on the left header.
 
@@ -290,18 +300,27 @@ GET http://DEVICE_IP/weather?wind=12.4&rain=0
 later cloud function can fetch a weather service and forward only wind/rain
 values to the device. Local tracking and cooling continue without Wi-Fi.
 
-## Heat-map telemetry
+## Digital temperature threshold and heat-map telemetry
 
-Start the dashboard with `cd webapp && python3 server.py`, then set
+For a KY-028-style module, connect `+` to ESP32-S3 `3V3`, `G`/`-` to common
+ground, and `DO` to GPIO11. The potentiometer sets the digital hot/cool trip
+point. The firmware sends this as `heatWarning`, and the web UI displays the
+live node as `HOT` or `clear`; it is a threshold state, not a temperature in °C.
+
+Start the dashboard with `cd web && uvicorn main:app --host 0.0.0.0 --port 8080`,
+then set
 `TELEMETRY_URL` to `http://<laptop-LAN-IP>:8080/api/telemetry`. Set `NODE_ID`,
 `NODE_MAP_X`, and `NODE_MAP_Y` in `Config.h` for each ESP. Every ten
 seconds the sketch can POST a JSON record containing location, temperature
 status, occupancy, light readings, tracking errors, and system state.
 
-The current 37-in-1 digital threshold module cannot supply a numerical
-temperature, so `temperatureC` is sent as `null`. For an actual heat map, add a
-calibrated, shaded, ventilated I2C temperature/humidity sensor such as an SHT31
-or SHT40. I2C devices can share the existing SDA/SCL pair with a future INA219.
+On Serial, `Wi-Fi connected; SOLACE IP: ...` confirms association. A successful
+dashboard upload prints `Telemetry POST: HTTP 201`; the web header then changes
+to `ESP CONNECTED · LIVE DATA`. If no fresh packet arrives for 35 seconds, the
+dashboard marks the ESP offline instead of treating an old reading as live.
+`TELEMETRY_URL` must point to the laptop's LAN IP, not `localhost`. Open guest
+networks with captive portals may associate but still block the ESP's HTTP
+traffic; a phone hotspot or ordinary 2.4 GHz LAN is usually easier for a demo.
 
 ## Multimeter-only solar demo
 
@@ -325,7 +344,7 @@ short circuit. Do not use open-circuit voltage alone as an energy measurement.
 For a defensible comparison, use the same load, lamp geometry, sampling interval,
 and trial duration for fixed and tracking runs.
 
-# SOLACE — Solar-Powered Adaptive Shading System
+## Project overview
 
 SOLACE is a prototype solar-powered adaptive shading system developed for HackIoT. It combines embedded control, light sensing, occupancy detection, and geometric optimization to balance shading performance and solar energy collection.
 
@@ -352,6 +371,25 @@ SOLACE is a prototype solar-powered adaptive shading system developed for HackIo
 
 The `ShadeOptimizer` module searches candidate panel orientations to maximize coverage of a fixed rectangular ground target.
 
+The consolidated firmware captures the last LDR-tracked panel pose when
+occupancy begins and uses it as the sun-direction estimate. It computes one
+shade plan on entry to `SHADE`, restricts the search to reachable servo angles,
+and then moves toward that plan. If the request is invalid, it falls back to
+`SHADE_AZ_DEG` / `SHADE_EL_DEG`. The resulting target angles, coverage, and
+power proxy are included in `/status` and outbound telemetry.
+
+`SHADE_TARGET_CENTER_X_CM` and `SHADE_TARGET_CENTER_Y_CM` locate the passenger
+zone relative to the rotation pivot. The included values match the 35°/35° demo
+lamp geometry; measure and replace them for the physical model. Run the native
+optimizer regression test with:
+
+```sh
+c++ -std=c++17 -Ifirmware/SOLACE \
+  firmware/tests/shade_optimizer_test.cpp \
+  firmware/SOLACE/ShadeOptimizer.cpp -o /tmp/solace-shade-test-bin
+/tmp/solace-shade-test-bin
+```
+
 The current optimization strategy is:
 
 1. Search candidate panel azimuth and elevation angles.
@@ -377,27 +415,43 @@ The system prioritizes operating states in the following order:
 - [x] Integrate occupancy-priority logic into state selection.
 - [ ] Validate geometric projection and coverage calculations.
 - [ ] Calibrate the rotation-pivot offset and servo angle conventions.
-- [ ] Connect a validated sun-direction estimate to the optimizer.
+- [x] Seed the optimizer from the last LDR-tracked sun direction.
 - [ ] Verify servo motion and measured ground coverage.
 - [ ] Test the complete occupancy-aware control workflow.
 
 **Current stage:** Prototype implementation and validation.
 
-The optimizer currently uses test sun-direction inputs during initial integration. The geometric model, mechanical offsets, and servo-angle mapping still require validation before the optimization results can safely control the physical mechanism.
+The optimizer now controls the occupied target pose within configured servo
+limits. The geometric target coordinates, mechanical offsets, and servo-angle
+conventions still require physical calibration before the reported coverage can
+be treated as a real-world measurement.
 
 ## Repository Structure
 
 ```text
 SOLACE/
-├── SOLACE.ino
-├── ShadeOptimizer.h
-├── ShadeOptimizer.cpp
-├── LdrArray.h
-├── LdrArray.cpp
-└── ...
+├── firmware/
+│   ├── SOLACE/
+│   │   ├── SOLACE.ino
+│   │   ├── Config.h
+│   │   ├── LdrArray.cpp
+│   │   ├── MotionController.cpp
+│   │   └── ...
+│   └── tests/
+│       ├── motor_test/
+│       └── servo_test/
+├── web/
+│   ├── main.py
+│   ├── index.html
+│   ├── script.js
+│   ├── style.css
+│   └── requirements.txt
+├── README.md
+└── .gitignore
 ```
 
-The tree above highlights the main files; additional modules handle motion control, occupancy sensing, temperature monitoring, networking, configuration, and system state definitions.
+The firmware source remains in one Arduino sketch folder, while the web server
+keeps its backend, static assets, and Python dependencies together.
 
 ## Technologies
 

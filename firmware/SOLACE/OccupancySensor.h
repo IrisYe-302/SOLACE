@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#include "Config.h"
+
 class OccupancySensor {
  public:
   void begin();
@@ -26,4 +28,8 @@ class OccupancySensor {
   uint8_t negativeCount_ = 0;
   uint32_t lastOccupiedMs_ = 0;
   uint32_t lastPingMs_ = 0;
+  uint32_t lastValidDistanceMs_ = 0;
+  uint16_t recentDistances_[Config::OCC_MEDIAN_SAMPLES]{};
+  uint8_t recentDistanceCount_ = 0;
+  uint8_t recentDistanceIndex_ = 0;
 };

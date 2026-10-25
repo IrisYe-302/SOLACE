@@ -34,6 +34,12 @@ struct NodeStatus {
   LdrReadings light;
   float azimuthDeg = 90;
   float elevationDeg = 90;
+  bool shadePlanValid = false;
+  bool shadeCoverageTargetMet = false;
+  float shadeTargetAzimuthDeg = 90;
+  float shadeTargetElevationDeg = 90;
+  float shadeCoverage = 0;
+  float shadePowerProxy = 0;
   bool occupied = false;
   uint16_t distanceMm = 0;
   bool heatWarning = false;

@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 ROOT = Path(__file__).resolve().parent
 MAX_READINGS = 5000
+LIVE_READING_MAX_AGE_SECONDS = 35
 SLOT_COORDS = {"A": (.15, .49), "B": (.49, .19), "C": (.49, .79), "D": (.85, .49)}
 SIMULATED_LAMPS = {
     "A": {"temperature": 78., "solar_energy_per_min": 2.8},
@@ -101,7 +102,11 @@ def normalize_reading(payload: Any) -> dict[str, Any]:
     return {"id": f"{time.time_ns():x}", "device": device,
             "slot": requested_slot if requested_slot in SLOT_COORDS else nearest_slot(x, y),
             "x": x, "y": y, "value": finite_number(value, "value"), "unit": unit,
-            "timestamp": str(payload.get("timestamp") or utc_now())[:64]}
+            "timestamp": str(payload.get("timestamp") or utc_now())[:64],
+            "receivedEpoch": time.time(),
+            "wifiConnected": bool(payload.get("wifiConnected", True)),
+            "wifiIp": str(payload.get("wifiIp", ""))[:64],
+            "wifiRssi": int(payload.get("wifiRssi", 0))}
 
 
 def value_fahrenheit(reading: dict[str, Any]) -> float | None:
@@ -117,15 +122,20 @@ def current_lamps() -> list[dict[str, Any]]:
     lamps = []
     for slot, simulated in SIMULATED_LAMPS.items():
         reading = latest.get(slot)
-        live_temp = value_fahrenheit(reading) if reading else None
+        age_seconds = max(0, int(time.time() - reading["receivedEpoch"])) if reading else None
+        fresh = reading is not None and age_seconds <= LIVE_READING_MAX_AGE_SECONDS
+        live_temp = value_fahrenheit(reading) if fresh else None
         temperature = live_temp if live_temp is not None else simulated["temperature"]
         display = f"{temperature:.1f}°F"
-        if reading and reading["unit"].lower() == "heat": display = "HOT" if reading["value"] >= .5 else "clear"
+        if fresh and reading["unit"].lower() == "heat": display = "HOT" if reading["value"] >= .5 else "clear"
         lamps.append({"id": slot, "temperature": round(temperature, 1),
-                      "solar_energy_per_min": simulated["solar_energy_per_min"], "live": reading is not None,
+                      "solar_energy_per_min": simulated["solar_energy_per_min"], "live": fresh,
                       "numeric_temperature_live": live_temp is not None, "display_value": display,
                       "device": reading["device"] if reading else None,
-                      "timestamp": reading["timestamp"] if reading else None})
+                      "timestamp": reading["timestamp"] if reading else None,
+                      "last_seen_seconds": age_seconds,
+                      "wifi_ip": reading["wifiIp"] if reading else None,
+                      "wifi_rssi": reading["wifiRssi"] if reading else None})
     return lamps
 
 
@@ -133,10 +143,17 @@ def current_lamps() -> list[dict[str, Any]]:
 def home(): return FileResponse(ROOT / "index.html")
 
 @app.get("/style.css")
-def stylesheet(): return FileResponse(ROOT / "style.css", media_type="text/css")
+def stylesheet():
+    return FileResponse(ROOT / "style.css", media_type="text/css",
+                        headers={"Cache-Control": "no-store"})
 
 @app.get("/script.js")
-def javascript(): return FileResponse(ROOT / "script.js", media_type="text/javascript")
+def javascript():
+    return FileResponse(ROOT / "script.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-store"})
+
+@app.get("/assets/solace-mark.png")
+def logo(): return FileResponse(ROOT / "assets" / "solace-mark.png", media_type="image/png")
 
 @app.get("/streetlamps")
 def get_streetlamps(): return current_lamps()
@@ -146,18 +163,42 @@ def get_paths(): return PATHS
 
 
 @app.get("/best-route")
-def get_best_route():
+def get_best_route(start: str = "A", end: str = "D"):
+    start, end = start.upper(), end.upper()
+    if start not in SLOT_COORDS or end not in SLOT_COORDS:
+        raise HTTPException(status_code=400, detail="start and end must be A, B, C, or D")
+
     lamps = {lamp["id"]: lamp for lamp in current_lamps()}
-    def route(path: str, distance: int, temperature: float):
+    adjacency: dict[str, list[tuple[str, int]]] = {node: [] for node in SLOT_COORDS}
+    for edge in PATHS:
+        adjacency[edge["start"]].append((edge["end"], edge["distance"]))
+        adjacency[edge["end"]].append((edge["start"], edge["distance"]))
+
+    candidates: list[tuple[list[str], int]] = []
+
+    def walk(node: str, nodes: list[str], distance: int) -> None:
+        if node == end:
+            candidates.append((nodes, distance))
+            return
+        for neighbor, edge_distance in adjacency[node]:
+            if neighbor not in nodes:
+                walk(neighbor, nodes + [neighbor], distance + edge_distance)
+
+    walk(start, [start], 0)
+
+    def route(nodes: list[str], distance: int):
+        path = "-".join(nodes)
+        temperature = sum(lamps[node]["temperature"] for node in nodes) / len(nodes)
         eta = distance / 1.4 / 60
-        energy = sum(lamps[node]["solar_energy_per_min"] for node in path.replace("-", ""))
+        energy = sum(lamps[node]["solar_energy_per_min"] for node in nodes)
         return {"path": path, "distance": distance, "average_temperature": round(temperature, 1),
                 "score": round(distance + 20*(temperature-75), 1), "eta": round(eta, 1),
                 "estimated_energy": round(energy*eta, 1)}
-    route_1 = route("A-B-D", 220, sum(lamps[n]["temperature"] for n in "ABD")/3)
-    route_2 = route("A-C-D", 240, sum(lamps[n]["temperature"] for n in "ACD")/3)
-    best = route_1 if route_1["score"] < route_2["score"] else route_2
-    return {"route_1": route_1, "route_2": route_2, "recommended_route": best["path"],
+
+    routes = [route(nodes, distance) for nodes, distance in candidates]
+    best = min(routes, key=lambda item: item["score"])
+    return {"routes": routes, "selected_route": best,
+            "recommended_route": best["path"],
             "using_live_temperature": any(l["numeric_temperature_live"] for l in lamps.values())}
 
 

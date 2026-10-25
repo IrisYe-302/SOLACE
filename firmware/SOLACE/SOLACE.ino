@@ -17,14 +17,56 @@ TemperatureMonitor temperature;
 SolaceNetworkManager network;
 NodeStatus node;
 ShadeOptimizer shadeOptimizer;
+ShadeResult shadePlan;
 
 uint32_t lastTrackMs = 0;
 uint32_t lastSerialMs = 0;
+SystemState previousState = SystemState::LOW_LIGHT;
+float solarAzimuthEstimateDeg = Config::AZ_RESET_DEG;
+float solarElevationEstimateDeg = Config::EL_RESET_DEG;
 
 static void setCooling(bool enabled) {
   node.coolingOn = enabled;
   const bool level = Config::COOLING_ACTIVE_HIGH ? enabled : !enabled;
   digitalWrite(Config::PIN_COOLING, level ? HIGH : LOW);
+}
+
+static void computeShadePlan() {
+  // Immediately before occupancy, the LDR controller has aimed the panel normal
+  // toward the brightest direction. Use that pose as the sun estimate; do not
+  // recompute it after the panel has moved away to make shade.
+  const ShadeRequest request{
+      solarAzimuthEstimateDeg,
+      constrain(solarElevationEstimateDeg, 1.0f, 90.0f),
+      Config::SHADE_PIVOT_HEIGHT_CM,
+      Config::SHADE_PANEL_OFFSET_U_CM,
+      Config::SHADE_PANEL_OFFSET_V_CM,
+      Config::SHADE_PANEL_OFFSET_N_CM,
+      Config::SHADE_TARGET_CENTER_X_CM,
+      Config::SHADE_TARGET_CENTER_Y_CM,
+      Config::SHADE_SEARCH_AZ_MIN_DEG,
+      Config::SHADE_SEARCH_AZ_MAX_DEG,
+      Config::SHADE_SEARCH_EL_MIN_DEG,
+      Config::SHADE_SEARCH_EL_MAX_DEG,
+      Config::SHADE_SEARCH_STEP_DEG};
+
+  shadePlan = shadeOptimizer.optimize(request);
+  node.shadePlanValid = shadePlan.valid;
+  node.shadeCoverageTargetMet = shadePlan.coverageTargetMet;
+  node.shadeTargetAzimuthDeg =
+      shadePlan.valid ? shadePlan.azimuthDeg : Config::SHADE_AZ_DEG;
+  node.shadeTargetElevationDeg =
+      shadePlan.valid ? shadePlan.elevationDeg : Config::SHADE_EL_DEG;
+  node.shadeCoverage = shadePlan.coverage;
+  node.shadePowerProxy = shadePlan.powerProxy;
+
+  Serial.printf(
+      "SHADE_PLAN valid=%d sun=%.1f/%.1f target=%.1f/%.1f "
+      "coverage=%.1f%% targetMet=%d power=%.3f\n",
+      shadePlan.valid, request.sunAzimuthDeg, request.sunElevationDeg,
+      node.shadeTargetAzimuthDeg, node.shadeTargetElevationDeg,
+      shadePlan.coverage * 100.0f, shadePlan.coverageTargetMet,
+      shadePlan.powerProxy);
 }
 
 
@@ -128,36 +170,9 @@ void loop() {
         break;
  
       case SystemState::SHADE: {
-        motion.hold();
-        // Test values only; not a real sun-position estimate.
-        const float testSunAzimuthDeg = 35.0f;
-        const float testSunElevationDeg = 35.0f;
-
-        // Height from ground to the rotation pivot.
-        const float pivotHeightCm = 15.0f;
-
-        // Temporary offsets. Calibrate these from the actual mechanism.
-        const float offsetUcm = 0.0f;
-        const float offsetVcm = 0.0f;
-        const float offsetNcm = 0.0f;
-
-        ShadeResult shade = shadeOptimizer.optimize(
-            testSunAzimuthDeg, testSunElevationDeg, pivotHeightCm,
-            offsetUcm, offsetVcm, offsetNcm);
-
-        if (shade.valid) {
-          Serial.printf(
-              "SHADE_OPT az=%.1f el=%.1f coverage=%.1f%% "
-              "targetMet=%d powerProxy=%.3f\n",
-              shade.azimuthDeg, shade.elevationDeg, shade.coverage * 100.0f,
-              shade.coverageTargetMet, shade.powerProxy);
-        } else {
-          Serial.println("SHADE_OPT: no valid solution");
-        }
-
-        // Keep the uncalibrated optimizer out of the actuator path for now.
-        // MotionController bounds the configured pose to safe limits.
-        motion.moveToward(Config::SHADE_AZ_DEG, Config::SHADE_EL_DEG);
+        if (previousState != SystemState::SHADE) computeShadePlan();
+        motion.moveToward(node.shadeTargetAzimuthDeg,
+                          node.shadeTargetElevationDeg);
         break;
       }
       
@@ -169,6 +184,12 @@ void loop() {
     }
     node.azimuthDeg = motion.azimuth();
     node.elevationDeg = motion.elevation();
+    if (node.state == SystemState::TRACKING ||
+        node.state == SystemState::ALIGNED) {
+      solarAzimuthEstimateDeg = node.azimuthDeg;
+      solarElevationEstimateDeg = node.elevationDeg;
+    }
+    previousState = node.state;
   }
 
   if (now - lastSerialMs >= 1000) {
