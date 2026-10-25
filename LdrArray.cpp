@@ -5,6 +5,7 @@
 void LdrArray::begin() {
   for (uint8_t i = 0; i < Config::LDR_COUNT; ++i) {
     pinMode(Config::PIN_LDR_ADC[i], INPUT);
+    analogSetPinAttenuation(Config::PIN_LDR_ADC[i], ADC_11db);
   }
   analogReadResolution(12);
 }

@@ -49,7 +49,18 @@ constexpr bool TEMP_THRESHOLD_ACTIVE_LOW = true;
 // Direct sensor order: T1, T2, B1, B2, L1, R1.
 constexpr float LDR_GAIN[LDR_COUNT] = {1, 1, 1, 1, 1, 1};
 constexpr bool LDR_BRIGHTER_IS_HIGH = true;
-constexpr uint16_t LDR_LOW_LIGHT_THRESHOLD = 500; // Calibrate in the real setup.
+// Safe 5 V network for every input:
+// 5 V -> 10 kOhm -> LDR -> ADC node -> 10 kOhm -> GND.
+// Even with an ideal 0-Ohm LDR, the ADC node is limited to about 2.50 V.
+constexpr uint32_t LDR_SUPPLY_MV = 5000;
+constexpr uint32_t LDR_SERIES_OHMS = 10000;
+constexpr uint32_t LDR_PULLDOWN_OHMS = 10000;
+constexpr uint32_t LDR_MAX_ADC_MV =
+    LDR_SUPPLY_MV * LDR_PULLDOWN_OHMS /
+    (LDR_SERIES_OHMS + LDR_PULLDOWN_OHMS);
+static_assert(LDR_MAX_ADC_MV <= 3100,
+              "LDR divider can exceed the ESP32 ADC measurement range");
+constexpr uint16_t LDR_LOW_LIGHT_THRESHOLD = 500; // Raw ADC starting point; calibrate.
 constexpr uint8_t LDR_SAMPLES = 8;
 
 // Motion limits. These must match the printed mechanism before first movement.

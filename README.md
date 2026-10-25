@@ -88,8 +88,22 @@ Physical servo pinout:
 
 ## Six direct LDRs
 
-No analog multiplexer is required. Build six identical LDR/10 kOhm voltage
-dividers and connect their midpoint nodes as follows:
+No analog multiplexer is required. Because these LDR networks use a 5 V supply,
+each one needs both a 10 kOhm upper safety resistor and the existing 10 kOhm
+resistor to ground:
+
+```text
+5 V → 10 kOhm → LDR → ADC node → 10 kOhm → GND
+                         │
+                         └──────── ESP32 ADC pin
+```
+
+The upper 10 kOhm resistor limits the theoretical maximum ADC voltage to about
+2.50 V even if the illuminated LDR approaches zero resistance. A direct
+`5 V → LDR → ADC → 10 kOhm → GND` connection is unsafe because the ADC node can
+approach 5 V. Firmware attenuation does not make an over-voltage safe.
+
+Connect the six protected ADC nodes as follows:
 
 | Sensor | ESP32 pin |
 | --- | --- |
@@ -107,6 +121,11 @@ The firmware averages T1/T2 and B1/B2 for elevation tracking. L1 and R1 provide
 the azimuth error. GPIO34, GPIO35, GPIO36, and GPIO39 are input-only, which is
 appropriate for these analog divider outputs. The HC-SR04 moves to GPIO16/17,
 and the temperature threshold input moves to GPIO13.
+
+The firmware configures each LDR channel for 11 dB ADC attenuation, whose
+documented ESP32 measurement range extends to approximately 3.1 V. The raw
+low-light threshold in `Config.h` is only a starting point and must be calibrated
+with the completed sensor mounts and actual lighting.
 
 ## Local Wi-Fi interface
 
