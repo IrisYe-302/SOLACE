@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Solace</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+    <!-- LANDING PAGE -->
+
+    <h1>solace</h1>
+
+    <p>stay cool.</p>
+    <p>bring your hot girl energy to the renewables.</p>
+
+    <a href="#route-finder">
+        <button>let's go!</button>
+    </a>
+
+
+    <!-- ROUTE FINDER -->
+
+    <div id="route-finder">
+
+        <h2>where are you headed?</h2>
+
+        <div class="route-inputs">
+
+            <div>
+                <label>starting point</label>
+
+                <select>
+                    <option>A</option>
+                    <option>B</option>
+                    <option>C</option>
+                    <option>D</option>
+                </select>
+            </div>
+
+            <div>
+                <label>destination</label>
+
+                <select>
+                    <option>D</option>
+                    <option>C</option>
+                    <option>B</option>
+                    <option>A</option>
+                </select>
+            </div>
+
+        </div>
+
+        <button id="find-route-button">
+            find my coolest route
+        </button>
+
+
+        <!-- MAP + CHECKPOINT -->
+        <div class="data-badge">
+            ● simulated data
+        </div>
+
+        <div class="walk-area">
+
+            <!-- MAP -->
+
+            <div class="map">
+
+                <div class="path path-ab"></div>
+                <div class="path path-ac cool-route"></div>
+                <div class="path path-bd"></div>
+                <div class="path path-cd cool-route"></div>
+
+                <div class="lamp lamp-a">
+                    <div class="dot">A</div>
+                    <span>78°F</span>
+                </div>
+
+                <div class="lamp lamp-b">
+                    <div class="dot">B</div>
+                    <span>82°F</span>
+                </div>
+
+                <div class="lamp lamp-c">
+                    <div class="dot">C</div>
+                    <span>76°F</span>
+                </div>
+
+                <div class="lamp lamp-d">
+                    <div class="dot">D</div>
+                    <span>88°F</span>
+                </div>
+
+                <div id="user-marker">📍</div>
+
+            </div>
+
+
+            <!-- CHECKPOINT -->
+
+            <div id="energy-reward">
+
+                <p>☀️ checkpoint ☀️</p>
+
+                <h2 id="energy-amount"></h2>
+
+                <p id="energy-message"></p>
+
+                <button id="continue-walk-button">
+                    continue walking →
+                </button>
+
+            </div>
+
+        </div>
+
+
+        <!-- ROUTE RESULTS -->
+
+        <div id="route-result">
+
+            <h3>your coolest route</h3>
+
+            <div id="recommended-path"></div>
+
+            <div class="route-stats">
+
+                <div>
+                    <strong id="route-distance">--</strong>
+                    <span>distance</span>
+                </div>
+
+                <div>
+                    <strong id="route-temperature">--</strong>
+                    <span>average temperature</span>
+                </div>
+
+                <div>
+                    <strong id="route-eta">--</strong>
+                    <span>walking time</span>
+                </div>
+
+            </div>
+
+
+            <!-- ENERGY ESTIMATE -->
+
+            <div class="energy-estimate">
+
+                <p>
+                    estimated renewable energy generated
+                    during your walk
+                </p>
+
+                <strong id="estimated-energy">--</strong>
+
+            </div>
+
+
+            <p id="route-explanation"></p>
+
+            <button id="start-walk-button">
+                start walk
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <script src="/static/script.js"></script>
+
+</body>
+</html>
