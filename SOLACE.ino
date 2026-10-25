@@ -110,47 +110,42 @@ void loop() {
       case SystemState::STOW_RAIN:
         motion.moveToward(Config::RAIN_STOW_AZ_DEG, Config::RAIN_STOW_EL_DEG);
         break;
- 
-      case SystemState::SHADE: {
-  // Test values only; not a real sun-position estimate.
-        const float testSunAzimuthDeg = 35.0f;
-        const float testSunElevationDeg = 35.0f;
 
-  // Height from ground to the rotation pivot.
-        const float pivotHeightCm = 15.0f;
+    case SystemState::SHADE: {
+    const float testSunAzimuthDeg = 35.0f;
+    const float testSunElevationDeg = 35.0f;
+    const float pivotHeightCm = 15.0f;
 
-  // Temporary offsets. Calibrate these from the actual mechanism.
-        const float offsetUcm = 0.0f;
-        const float offsetVcm = 0.0f;
-        const float offsetNcm = 0.0f;
+    ShadeResult shade = shadeOptimizer.optimize(
+        testSunAzimuthDeg,
+        testSunElevationDeg,
+        pivotHeightCm,
+        0.0f,  // offsetUcm
+        0.0f,  // offsetVcm
+        0.0f   // offsetNcm
+    );
 
-      ShadeResult shade = shadeOptimizer.optimize(
-      testSunAzimuthDeg,
-      testSunElevationDeg,
-      pivotHeightCm,
-      offsetUcm,
-      offsetVcm,
-      offsetNcm
-  );
-
-  if (shade.valid) {
     Serial.printf(
-        "SHADE_OPT az=%.1f el=%.1f coverage=%.1f%% "
-        "targetMet=%d powerProxy=%.3f\n",
+        "Shade valid=%d, az=%.1f, el=%.1f, coverage=%.2f, target=%d, power=%.3f\n",
+        shade.valid,
         shade.azimuthDeg,
         shade.elevationDeg,
-        shade.coverage * 100.0f,
+        shade.coverage,
         shade.coverageTargetMet,
         shade.powerProxy
     );
-  } else {
-    Serial.println("SHADE_OPT: no valid solution");
-  }
 
-  // Do not drive the servos during this initial test.
-  break;
+    // Only command the servos when the optimizer returns a valid result.
+    if (shade.valid) {
+        motion.moveToward(
+            shade.azimuthDeg,
+            shade.elevationDeg
+        );
+    }
+
+    break;
 }
-// testing code for the shade, not final ver.
+
       
       case SystemState::LOW_LIGHT:
       case SystemState::ALIGNED:

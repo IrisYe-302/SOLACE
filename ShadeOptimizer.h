@@ -31,8 +31,8 @@ private:
   static constexpr float TARGET_D_CM = 6.5f;
   static constexpr float MIN_COVERAGE = 0.70f;
 
-  static constexpr float AZ_MIN_DEG = -180.0f;
-  static constexpr float AZ_MAX_DEG = 180.0f;
+  static constexpr float AZ_MIN_DEG = -165.0f;
+  static constexpr float AZ_MAX_DEG = 165.0f;
   static constexpr float EL_MIN_DEG = 5.0f;
   static constexpr float EL_MAX_DEG = 85.0f;
   static constexpr float SEARCH_STEP_DEG = 5.0f;
