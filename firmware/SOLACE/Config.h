@@ -185,7 +185,7 @@ constexpr char WIFI_PASSWORD[] = SOLACE_WIFI_PASSWORD;
 // Leave empty to disable outbound HTTP telemetry. The local /status endpoint
 // still works. Replace this example IP with the laptop's LAN IP.
 // Example: "http://192.168.1.50:8080/api/telemetry"
-constexpr char TELEMETRY_URL[] = "http://10.23.172.224:8080/api/telemetry";
+constexpr char TELEMETRY_URL[] = "http://127.0.0.2:8080/api/telemetry";
 constexpr char NODE_ID[] = "solace-demo-01";
 // Fixed location on the dashboard, normalized from 0.0 (left/top) to 1.0
 // (right/bottom). Give every deployed node its own position.
