@@ -409,18 +409,6 @@ The system prioritizes operating states in the following order:
 3. Low-light handling when the target area is unoccupied
 4. Solar tracking or aligned-position holding
 
-## Current Development Status
-
-- [x] Implement the `ShadeOptimizer` interface and geometric search algorithm.
-- [x] Integrate occupancy-priority logic into state selection.
-- [ ] Validate geometric projection and coverage calculations.
-- [ ] Calibrate the rotation-pivot offset and servo angle conventions.
-- [x] Seed the optimizer from the last LDR-tracked sun direction.
-- [ ] Verify servo motion and measured ground coverage.
-- [ ] Test the complete occupancy-aware control workflow.
-
-**Current stage:** Prototype implementation and validation.
-
 The optimizer now controls the occupied target pose within configured servo
 limits. The geometric target coordinates, mechanical offsets, and servo-angle
 conventions still require physical calibration before the reported coverage can
